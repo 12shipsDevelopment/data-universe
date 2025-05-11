@@ -54,12 +54,12 @@ class Subnet13TwitterScraper(Scraper):
                 tweet_count = 1 if attempt == 1 else 5
 
                 run_input = {
-                    **ApiDojoTwitterScraper.BASE_RUN_INPUT,
+                    **Subnet13TwitterScraper.BASE_RUN_INPUT,
                     "startUrls": [entity.uri],
                     "maxItems": tweet_count,
                 }
                 run_config = RunConfig(
-                    actor_id=ApiDojoTwitterScraper.ACTOR_ID,
+                    actor_id=Subnet13TwitterScraper.ACTOR_ID,
                     debug_info=f"Validate {entity.uri}",
                     max_data_entities=tweet_count,
                 )
@@ -121,7 +121,7 @@ class Subnet13TwitterScraper(Scraper):
         # Since we are using the threading.semaphore we need to use it in a context outside of asyncio.
         bt.logging.trace("Acquiring semaphore for concurrent apidojo validations.")
 
-        with ApiDojoTwitterScraper.concurrent_validates_semaphore:
+        with Subnet13TwitterScraper.concurrent_validates_semaphore:
             bt.logging.trace(
                 "Acquired semaphore for concurrent apidojo validations."
             )
@@ -153,12 +153,12 @@ class Subnet13TwitterScraper(Scraper):
                 tweet_count = 1 if attempt == 1 else 5
 
                 run_input = {
-                    **ApiDojoTwitterScraper.BASE_RUN_INPUT,
+                    **Subnet13TwitterScraper.BASE_RUN_INPUT,
                     "startUrls": [entity.get('url')],
                     "maxItems": tweet_count,
                 }
                 run_config = RunConfig(
-                    actor_id=ApiDojoTwitterScraper.ACTOR_ID,
+                    actor_id=Subnet13TwitterScraper.ACTOR_ID,
                     debug_info=f"Validate {entity.get('url')}",
                     max_data_entities=tweet_count,
                 )
@@ -214,7 +214,7 @@ class Subnet13TwitterScraper(Scraper):
         # Since we are using the threading.semaphore we need to use it in a context outside of asyncio.
         bt.logging.trace("Acquiring semaphore for concurrent apidojo validations.")
 
-        with ApiDojoTwitterScraper.concurrent_validates_semaphore:
+        with Subnet13TwitterScraper.concurrent_validates_semaphore:
             bt.logging.trace(
                 "Acquired semaphore for concurrent apidojo validations."
             )
@@ -269,16 +269,16 @@ class Subnet13TwitterScraper(Scraper):
         # Construct the input to the runner.
         max_items = scrape_config.entity_limit or 150
         # run_input = {
-        #     **ApiDojoTwitterScraper.BASE_RUN_INPUT,
+        #     **Subnet13TwitterScraper.BASE_RUN_INPUT,
         #     "searchTerms": [query],
         #     "maxTweets": max_items,
         # }
 
         # run_config = RunConfig(
-        #     actor_id=ApiDojoTwitterScraper.ACTOR_ID,
+        #     actor_id=Subnet13TwitterScraper.ACTOR_ID,
         #     debug_info=f"Scrape {query}",
         #     max_data_entities=scrape_config.entity_limit,
-        #     timeout_secs=ApiDojoTwitterScraper.SCRAPE_TIMEOUT_SECS,
+        #     timeout_secs=Subnet13TwitterScraper.SCRAPE_TIMEOUT_SECS,
         # )
 
         bt.logging.success(f"Performing Twitter scrape for search terms: {query}.")
@@ -431,11 +431,12 @@ class Subnet13TwitterScraper(Scraper):
 
 
 async def test_scrape():
-    scraper = ApiDojoTwitterScraper()
+    scraper = Subnet13TwitterScraper()
 
     entities = await scraper.scrape(
         ScrapeConfig(
             entity_limit=100,
+            scraper_base="http://localhost:8080/",
             date_range=DateRange(
                 start=dt.datetime(2024, 5, 27, 0, 0, 0, tzinfo=dt.timezone.utc),
                 end=dt.datetime(2024, 5, 27, 9, 0, 0, tzinfo=dt.timezone.utc),
@@ -448,7 +449,7 @@ async def test_scrape():
 
 
 async def test_validate():
-    scraper = ApiDojoTwitterScraper()
+    scraper = Subnet13TwitterScraper()
 
     true_entities = [
         DataEntity(
@@ -536,7 +537,7 @@ async def test_validate():
 
 
 async def test_multi_thread_validate():
-    scraper = ApiDojoTwitterScraper()
+    scraper = Subnet13TwitterScraper()
 
     true_entities = [
         DataEntity(
@@ -574,6 +575,6 @@ async def test_multi_thread_validate():
 
 if __name__ == "__main__":
     bt.logging.set_trace(True)
-    asyncio.run(test_multi_thread_validate())
+    # asyncio.run(test_multi_thread_validate())
     asyncio.run(test_scrape())
-    asyncio.run(test_validate())
+    # asyncio.run(test_validate())

@@ -5,8 +5,8 @@ from scraping.reddit.reddit_lite_scraper import RedditLiteScraper
 from scraping.reddit.reddit_custom_scraper import RedditCustomScraper
 from scraping.scraper import Scraper, ScraperId
 from scraping.x.microworlds_scraper import MicroworldsTwitterScraper
-# from scraping.x.apidojo_scraper import ApiDojoTwitterScraper
-from scraping.x.subnet13_tweeter_scraper import Subnet13TwitterScraper
+from scraping.x.apidojo_scraper import ApiDojoTwitterScraper
+# from scraping.x.subnet13_tweeter_scraper import Subnet13TwitterScraper
 from scraping.x.quacker_url_scraper import QuackerUrlScraper
 from scraping.youtube.youtube_custom_scraper import YouTubeTranscriptScraper
 
@@ -17,7 +17,7 @@ DEFAULT_FACTORIES = {
     ScraperId.X_FLASH: MicroworldsTwitterScraper,
     ScraperId.REDDIT_CUSTOM: RedditCustomScraper,
     ScraperId.X_MICROWORLDS: MicroworldsTwitterScraper,
-    ScraperId.X_APIDOJO: Subnet13TwitterScraper,#ApiDojoTwitterScraper,
+    ScraperId.X_APIDOJO: ApiDojoTwitterScraper,
     ScraperId.X_QUACKER: QuackerUrlScraper,
     ScraperId.YOUTUBE_TRANSCRIPT: YouTubeTranscriptScraper
 }

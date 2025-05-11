@@ -73,7 +73,6 @@ class EnhancedApiDojoTwitterScraper(ApiDojoTwitterScraper):
                             data['media'] = fixed_media
 
                 # Extract user information from author field
-                author = data.get('author', {})
                 user_id = author.get('id')
                 username = author.get('userName')
                 display_name = author.get('name')
@@ -139,7 +138,7 @@ class EnhancedApiDojoTwitterScraper(ApiDojoTwitterScraper):
                 if 'media' in data:
                     for media_item in data['media']:
                         if isinstance(media_item, dict):
-                            media_url = media_item.get('media_url_https')
+                            media_url = media_item.get('url')
                             if media_url:
                                 media_urls.append(media_url)
                                 media_types.append(media_item.get('type', 'photo'))
@@ -295,25 +294,45 @@ class EnhancedApiDojoTwitterScraper(ApiDojoTwitterScraper):
 
         # Construct the input to the runner.
         max_items = scrape_config.entity_limit or 150
-        run_input = {
-            **ApiDojoTwitterScraper.BASE_RUN_INPUT,
-            "searchTerms": [query],
-            "maxTweets": max_items,
-        }
+        # run_input = {
+        #     **ApiDojoTwitterScraper.BASE_RUN_INPUT,
+        #     "searchTerms": [query],
+        #     "maxTweets": max_items,
+        # }
 
-        run_config = RunConfig(
-            actor_id=ApiDojoTwitterScraper.ACTOR_ID,
-            debug_info=f"Scrape {query}",
-            max_data_entities=scrape_config.entity_limit,
-            timeout_secs=ApiDojoTwitterScraper.SCRAPE_TIMEOUT_SECS,
-        )
+        # run_config = RunConfig(
+        #     actor_id=ApiDojoTwitterScraper.ACTOR_ID,
+        #     debug_info=f"Scrape {query}",
+        #     max_data_entities=scrape_config.entity_limit,
+        #     timeout_secs=ApiDojoTwitterScraper.SCRAPE_TIMEOUT_SECS,
+        # )
 
         bt.logging.success(f"Performing Twitter scrape for search terms: {query}.")
 
         # Run the Actor and retrieve the scraped data.
         dataset: List[dict] = None
         try:
-            dataset: List[dict] = await self.runner.run(run_config, run_input)
+            data = {
+                "query": query,
+                "maxTweetsNbr": max_items
+            }
+
+            headers = {
+                "Content-Type": "application/json"
+            }
+            health = requests.get(scrape_config.scraper_base+"health")
+            if health.status_code != 200:
+                raise ConnectionError(
+                    f"scraper url {scrape_config.scraper_base} is not healthy. Status code: {health.status_code}"
+                )
+
+            get_tweets_url = scrape_config.scraper_base+"api/v1/tweets"
+            response = requests.post(get_tweets_url, json=data, headers=headers)
+            if response.status_code != 200:
+                raise ConnectionError(
+                    f"query {get_tweets_url} failed. Status code: {response.status_code}"
+                )
+            dataset: List[dict] = response.json().get("tweets",[])
         except Exception:
             bt.logging.error(
                 f"Failed to scrape tweets using search terms {query}: {traceback.format_exc()}."

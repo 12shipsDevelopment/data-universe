@@ -22,6 +22,7 @@ import threading
 import time
 import traceback
 import typing
+import os
 import bittensor as bt
 import datetime as dt
 from common import constants, utils
@@ -581,6 +582,7 @@ class Miner:
 
             config = ScrapeConfig(
                 entity_limit=synapse.limit,
+                scraper_base=os.environ.get("ScraperBase", "http://localhost:8080/"),
                 date_range=DateRange(
                     start=start_dt,
                     end=end_dt

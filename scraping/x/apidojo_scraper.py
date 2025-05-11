@@ -1,6 +1,7 @@
 import asyncio
 import threading
 import traceback
+import requests
 import bittensor as bt
 from typing import List, Tuple
 from common import constants
@@ -267,25 +268,45 @@ class ApiDojoTwitterScraper(Scraper):
 
         # Construct the input to the runner.
         max_items = scrape_config.entity_limit or 150
-        run_input = {
-            **ApiDojoTwitterScraper.BASE_RUN_INPUT,
-            "searchTerms": [query],
-            "maxTweets": max_items,
-        }
+        # run_input = {
+        #     **ApiDojoTwitterScraper.BASE_RUN_INPUT,
+        #     "searchTerms": [query],
+        #     "maxTweets": max_items,
+        # }
 
-        run_config = RunConfig(
-            actor_id=ApiDojoTwitterScraper.ACTOR_ID,
-            debug_info=f"Scrape {query}",
-            max_data_entities=scrape_config.entity_limit,
-            timeout_secs=ApiDojoTwitterScraper.SCRAPE_TIMEOUT_SECS,
-        )
+        # run_config = RunConfig(
+        #     actor_id=ApiDojoTwitterScraper.ACTOR_ID,
+        #     debug_info=f"Scrape {query}",
+        #     max_data_entities=scrape_config.entity_limit,
+        #     timeout_secs=ApiDojoTwitterScraper.SCRAPE_TIMEOUT_SECS,
+        # )
 
         bt.logging.success(f"Performing Twitter scrape for search terms: {query}.")
 
         # Run the Actor and retrieve the scraped data.
         dataset: List[dict] = None
         try:
-            dataset: List[dict] = await self.runner.run(run_config, run_input)
+            data = {
+                "query": query,
+                "maxTweetsNbr": max_items
+            }
+
+            headers = {
+                "Content-Type": "application/json"
+            }
+            health = requests.get(scrape_config.scraper_base+"health")
+            if health.status_code != 200:
+                raise ConnectionError(
+                    f"scraper url {scrape_config.scraper_base} is not healthy. Status code: {health.status_code}"
+                )
+
+            get_tweets_url = scrape_config.scraper_base+"api/v1/tweets"
+            response = requests.post(get_tweets_url, json=data, headers=headers)
+            if response.status_code != 200:
+                raise ConnectionError(
+                    f"query {get_tweets_url} failed. Status code: {response.status_code}"
+                )
+            dataset: List[dict] = response.json().get("tweets",[])
         except Exception:
             bt.logging.error(
                 f"Failed to scrape tweets using search terms {query}: {traceback.format_exc()}."
@@ -331,8 +352,8 @@ class ApiDojoTwitterScraper(Scraper):
                 # If there are no hashtags or cashtags they are empty lists.
 
                 # Safely retrieve hashtags and symbols lists using dictionary.get() method
-                hashtags = data.get('entities', {}).get('hashtags', [])
-                cashtags = data.get('entities', {}).get('symbols', [])
+                hashtags = data.get('hashtags', [])
+                cashtags = data.get('symbols', [])
 
                 # Combine hashtags and cashtags into one list and sort them by their first index
                 sorted_tags = sorted(hashtags + cashtags, key=lambda x: x['indices'][0])
@@ -345,7 +366,7 @@ class ApiDojoTwitterScraper(Scraper):
                 if 'media' in data and isinstance(data['media'], list):
                     for media_item in data['media']:
                         if isinstance(media_item, dict) and 'media_url_https' in media_item:
-                            media_urls.append(media_item['media_url_https'])
+                            media_urls.append(media_item['url'])
                         elif isinstance(media_item, str):
                             media_urls.append(media_item)
 
@@ -353,7 +374,7 @@ class ApiDojoTwitterScraper(Scraper):
                 is_retweets.append(is_retweet)
                 results.append(
                     XContent(
-                        username=data['author']['userName'],  # utils.extract_user(data["url"]),
+                        username=data['userName'],  # utils.extract_user(data["url"]),
                         text=utils.sanitize_scraped_tweet(text),
                         url=data["url"],
                         timestamp=dt.datetime.strptime(

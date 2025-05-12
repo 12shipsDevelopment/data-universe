@@ -73,6 +73,7 @@ def _choose_scrape_configs(
             scraper_id in config.scraper_configs
     ), f"Scraper Id {scraper_id} not in config"
 
+    scraper_base=os.environ.get("SCRAPER_BASE", "http://localhost:8080/")
     # Ensure now has timezone information
     if now.tzinfo is None:
         now = now.replace(tzinfo=dt.timezone.utc)
@@ -105,7 +106,7 @@ def _choose_scrape_configs(
 
             results.append(
                 ScrapeConfig(
-                    scraper_base=os.environ.get("SCRAPER_BASE", "http://localhost:8080/"),
+                    scraper_base=scraper_base,
                     entity_limit=label_config.max_data_entities,
                     date_range=date_range,
                     labels=labels_to_scrape,
@@ -139,7 +140,7 @@ def _choose_scrape_configs(
 
             results.append(
                 ScrapeConfig(
-                    scraper_base=os.environ.get("SCRAPER_BASE", "http://localhost:8080/"),
+                    scraper_base=scraper_base,
                     entity_limit=label_config.max_data_entities,
                     date_range=date_range,
                     labels=labels_to_scrape,

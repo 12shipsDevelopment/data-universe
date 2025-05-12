@@ -1,6 +1,7 @@
 import asyncio
 import threading
 import traceback
+import requests
 import bittensor as bt
 from typing import List, Tuple, Optional, Dict, Any
 from common import constants
@@ -73,12 +74,12 @@ class EnhancedApiDojoTwitterScraper(ApiDojoTwitterScraper):
                             data['media'] = fixed_media
 
                 # Extract user information from author field
-                user_id = author.get('id')
-                username = author.get('userName')
-                display_name = author.get('name')
-                verified = author.get('isBlueVerified', False) or author.get('isVerified', False)
-                followers_count = author.get('followers')
-                following_count = author.get('following')
+                user_id = data.get('id')
+                username = data.get('userName')
+                display_name = data.get('name')
+                verified = data.get('isBlueVerified', False) or data.get('isVerified', False)
+                followers_count = data.get('followers')
+                following_count = data.get('following')
 
                 # Extract tweet metadata
                 tweet_id = data.get('id')
@@ -99,24 +100,23 @@ class EnhancedApiDojoTwitterScraper(ApiDojoTwitterScraper):
                 # Extract hashtags and media
                 hashtags = []
                 cashtags = []
-                if 'entities' in data:
-                    if 'hashtags' in data['entities']:
-                        hashtags = ["#" + item['text'] for item in data['entities']['hashtags']]
-                    if 'symbols' in data['entities']:
-                        cashtags = ["$" + item['text'] for item in data['entities']['symbols']]
+                if 'hashtags' in data:
+                    hashtags = ["#" + item['text'] for item in data['hashtags']]
+                if 'symbols' in data:
+                    cashtags = ["$" + item['text'] for item in data['symbols']]
 
                 # Sort hashtags and cashtags by index if available
                 sorted_tags = []
-                if 'entities' in data and 'hashtags' in data['entities']:
-                    if 'symbols' in data['entities']:
+                if 'hashtags' in data :
+                    if 'symbols' in data:
                         # Try to sort by indices if available
                         try:
                             hashtag_items = [
                                 {'text': item['text'], 'indices': item.get('indices', [0, 0]), 'type': 'hashtag'}
-                                for item in data['entities']['hashtags']]
+                                for item in data['hashtags']]
                             cashtag_items = [
                                 {'text': item['text'], 'indices': item.get('indices', [0, 0]), 'type': 'symbol'}
-                                for item in data['entities']['symbols']]
+                                for item in data['symbols']]
                             combined = hashtag_items + cashtag_items
 
                             # Sort by first index
@@ -138,7 +138,7 @@ class EnhancedApiDojoTwitterScraper(ApiDojoTwitterScraper):
                 if 'media' in data:
                     for media_item in data['media']:
                         if isinstance(media_item, dict):
-                            media_url = media_item.get('url')
+                            media_url = media_item.get('media_url_https')
                             if media_url:
                                 media_urls.append(media_url)
                                 media_types.append(media_item.get('type', 'photo'))
@@ -227,8 +227,8 @@ class EnhancedApiDojoTwitterScraper(ApiDojoTwitterScraper):
 
                     # Handle hashtags extraction
                     hashtags = []
-                    if 'entities' in data and 'hashtags' in data['entities']:
-                        hashtags = ["#" + item['text'] for item in data['entities']['hashtags']]
+                    if 'hashtags' in data:
+                        hashtags = ["#" + item['text'] for item in data['hashtags']]
 
                     # Create minimal enhanced content
                     enhanced_content = EnhancedXContent(

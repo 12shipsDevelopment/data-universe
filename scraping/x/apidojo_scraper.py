@@ -366,7 +366,7 @@ class ApiDojoTwitterScraper(Scraper):
                 if 'media' in data and isinstance(data['media'], list):
                     for media_item in data['media']:
                         if isinstance(media_item, dict) and 'media_url_https' in media_item:
-                            media_urls.append(media_item['url'])
+                            media_urls.append(media_item['media_url_https'])
                         elif isinstance(media_item, str):
                             media_urls.append(media_item)
 

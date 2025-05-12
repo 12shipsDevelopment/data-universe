@@ -3,6 +3,7 @@ import functools
 import random
 import threading
 import traceback
+import os
 import bittensor as bt
 import datetime as dt
 from typing import Dict, List, Optional
@@ -104,6 +105,7 @@ def _choose_scrape_configs(
 
             results.append(
                 ScrapeConfig(
+                    scraper_base=os.environ.get("SCRAPER_BASE", "http://localhost:8080/"),
                     entity_limit=label_config.max_data_entities,
                     date_range=date_range,
                     labels=labels_to_scrape,
@@ -137,6 +139,7 @@ def _choose_scrape_configs(
 
             results.append(
                 ScrapeConfig(
+                    scraper_base=os.environ.get("SCRAPER_BASE", "http://localhost:8080/"),
                     entity_limit=label_config.max_data_entities,
                     date_range=date_range,
                     labels=labels_to_scrape,

@@ -424,11 +424,13 @@ class MySQLMinerStorage(MinerStorage):
 
         with contextlib.closing(self._create_connection()) as connection:
             cursor = connection.cursor()
-            cursor.execute(
+            conditions = ["(timeBucketId = %s AND label = %s)"] * len(data_entity_bucket_ids)
+            query = (
                 "SELECT timeBucketId, source, label, content, contentSizeBytes FROM DataEntity "
-                    " WHERE timeBucketId = %s AND label = %s"
-                    f" {"OR timeBucketId = %s AND label = %s" * (len(data_entity_bucket_ids) - 1)}"
-                    " LIMIT %s ",
+                f"WHERE {' OR '.join(conditions)} LIMIT %s"
+            )
+            cursor.execute(
+                query,
                 list(time_bucket_ids_and_labels)
                 + [constants.BULK_CONTENTS_COUNT_LIMIT],
             )

@@ -39,7 +39,8 @@ from common.protocol import (
 from scraping.config.config_reader import ConfigReader
 from scraping.coordinator import ScraperCoordinator
 from scraping.provider import ScraperProvider
-from storage.miner.sqlite_miner_storage import SqliteMinerStorage
+# from storage.miner.sqlite_miner_storage import SqliteMinerStorage
+from storage.miner.mysql_miner_storage import MySQLMinerStorage
 from neurons.config import NeuronType, check_config, create_config
 from huggingface_utils.huggingface_uploader import DualUploader
 from huggingface_utils.encoding_system import EncodingKeyManager, decode_url
@@ -165,10 +166,7 @@ class Miner:
             )
 
         # Instantiate storage.
-        self.storage = SqliteMinerStorage(
-            self.config.neuron.database_name,
-            self.config.neuron.max_database_size_gb_hint,
-        )
+        self.storage = MySQLMinerStorage()
 
         bt.logging.success(
             f"Successfully connected to miner storage: {self.config.neuron.database_name}."

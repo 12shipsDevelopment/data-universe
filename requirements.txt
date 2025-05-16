@@ -21,3 +21,8 @@ loguru==0.7.3
 google-api-python-client==2.167.0
 youtube-transcript-api==1.0.3
 isodate==0.7.2
+
+aiosqlite>=0.17.0
+fake-useragent>=1.4.0
+httpx>=0.26.0
+pyotp>=2.9.0

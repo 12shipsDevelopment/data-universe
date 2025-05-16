@@ -1,8 +1,9 @@
 import asyncio
 import threading
 import traceback
-import requests
 import bittensor as bt
+from twscrape import API, AccountsPool, gather
+from twscrape.models import Tweet
 from typing import List, Tuple
 from common import constants
 from common.data import DataEntity, DataLabel, DataSource
@@ -284,29 +285,11 @@ class ApiDojoTwitterScraper(Scraper):
         bt.logging.success(f"Performing Twitter scrape for search terms: {query}.")
 
         # Run the Actor and retrieve the scraped data.
-        dataset: List[dict] = None
+        # dataset: List[dict] = None
         try:
-            data = {
-                "query": query,
-                "maxTweetsNbr": max_items
-            }
-
-            headers = {
-                "Content-Type": "application/json"
-            }
-            health = requests.get(scrape_config.scraper_base+"health")
-            if health.status_code != 200:
-                raise ConnectionError(
-                    f"scraper url {scrape_config.scraper_base} is not healthy. Status code: {health.status_code}"
-                )
-
-            get_tweets_url = scrape_config.scraper_base+"api/v1/tweets"
-            response = requests.post(get_tweets_url, json=data, headers=headers)
-            if response.status_code != 200:
-                raise ConnectionError(
-                    f"query {get_tweets_url} failed. Status code: {response.status_code}"
-                )
-            dataset: List[dict] = response.json().get("tweets",[])
+            pool = AccountsPool()
+            api = API(pool)
+            tweets = await gather(api.search(query,max_items))
         except Exception:
             bt.logging.error(
                 f"Failed to scrape tweets using search terms {query}: {traceback.format_exc()}."
@@ -314,7 +297,7 @@ class ApiDojoTwitterScraper(Scraper):
             return []
 
         # Return the parsed results, ignoring data that can't be parsed.
-        x_contents, is_retweets = self._best_effort_parse_dataset(dataset)
+        x_contents, is_retweets = self._best_effort_parse_tweets(tweets)
 
         bt.logging.success(
             f"Completed scrape for {query}. Scraped {len(x_contents)} items."
@@ -326,6 +309,79 @@ class ApiDojoTwitterScraper(Scraper):
 
         return data_entities
 
+    def _best_effort_parse_tweets(self, tweets: list[Tweet]) -> Tuple[List[XContent], List[bool]]:
+        """Performs a best effort parsing of Apify dataset into List[XContent]
+
+        Any errors are logged and ignored."""
+        if len(tweets) == 0:  # Todo remove first statement if it's not necessary
+            return [], []
+
+        results: List[XContent] = []
+        is_retweets: List[bool] = []
+        for tweet in tweets:
+            try:
+                # Check that we have the required fields.
+                # if (
+                #         ("text" not in data)
+                #         or "url" not in data
+                #         or "createdAt" not in data
+                # ):
+                #     continue
+
+                text = tweet.rawContent #data['text']
+
+                # Apidojo returns cashtags separately under symbols.
+                # These are returned as list of dicts where the indices key is the first/last index and text is the tag.
+                # If there are no hashtags or cashtags they are empty lists.
+
+                # Safely retrieve hashtags and symbols lists using dictionary.get() method
+                # hashtags = data.get('hashtags', [])
+                # cashtags = data.get('symbols', [])
+
+                # Combine hashtags and cashtags into one list and sort them by their first index
+                # sorted_tags = sorted(hashtags + cashtags, key=lambda x: x['indices'][0])
+                sorted_tags = tweet.hashtags + tweet.cashtags
+
+                # Create a list of formatted tags with prefixes
+                # tags = ["#" + item['text'] for item in sorted_tags]
+                tags = ["#" + item for item in sorted_tags]
+
+                # Extract media URLs from the data
+                media_urls = []
+                for media_item in tweet.media.photos:
+                    media_urls.append(media_item.url)
+                for media_item in tweet.media.videos:
+                    media_urls.append(media_item.thumbnailUrl)
+                for media_item in tweet.media.animated:
+                    media_urls.append(media_item.thumbnailUrl)
+                # if 'media' in data and isinstance(data['media'], list):
+                #     for media_item in data['media']:
+                #         if isinstance(media_item, dict) and 'media_url_https' in media_item:
+                #             media_urls.append(media_item['media_url_https'])
+                #         elif isinstance(media_item, str):
+                #             media_urls.append(media_item)
+                            
+                # is_retweet = data.get('isRetweet', False)
+                is_retweet = tweet.retweetedTweet is not None
+                is_retweets.append(is_retweet)
+                results.append(
+                    XContent(
+                        username=tweet.user.username, #data['userName'],  # utils.extract_user(data["url"]),
+                        text=utils.sanitize_scraped_tweet(text),
+                        url= tweet.url, #data["url"],
+                        timestamp= tweet.date, #dt.datetime.strptime(
+                        #     data["createdAt"], "%a %b %d %H:%M:%S %z %Y"
+                        # ),
+                        tweet_hashtags=tags,
+                        media=media_urls if media_urls else None,
+                    )
+                )
+            except Exception:
+                bt.logging.warning(
+                    f"Failed to decode XContent from Apify response: {traceback.format_exc()}."
+                )
+        return results, is_retweets
+    
     def _best_effort_parse_dataset(self, dataset: List[dict]) -> Tuple[List[XContent], List[bool]]:
         """Performs a best effort parsing of Apify dataset into List[XContent]
 

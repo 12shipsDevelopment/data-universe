@@ -1,8 +1,9 @@
 import asyncio
 import threading
 import traceback
-import requests
 import bittensor as bt
+from twscrape import API, AccountsPool, gather
+from twscrape.models import Tweet
 from typing import List, Tuple, Optional, Dict, Any
 from common import constants
 from common.data import DataEntity, DataLabel, DataSource
@@ -44,7 +45,245 @@ class EnhancedApiDojoTwitterScraper(ApiDojoTwitterScraper):
         self.enhanced_contents = self._parse_enhanced_content(dataset)
 
         return standard_contents, is_retweets
+    
+    def _best_effort_parse_tweets(self, dataset: list[Tweet]) -> Tuple[List[XContent], List[bool]]:
+        """
+        Enhanced version that parses the full dataset into both standard XContent (for backward compatibility)
+        and EnhancedXContent objects.
 
+        Returns:
+            Tuple[List[XContent], List[bool]]: (standard_parsed_content, is_retweets)
+        """
+        # Call the parent class method to get standard parsed content
+        standard_contents, is_retweets = super()._best_effort_parse_tweets(dataset)
+
+        # Also parse into enhanced content and store it in a class attribute
+        self.enhanced_contents = self._parse_enhanced_tweets_content(dataset)
+
+        return standard_contents, is_retweets
+
+
+    def _parse_enhanced_tweets_content(self, dataset: list[Tweet]) -> List[EnhancedXContent]:
+        """
+        Parse the dataset into EnhancedXContent objects with all available metadata.
+
+        Args:
+            dataset (List[dict]): The raw dataset from ApiDojo Twitter Scraper.
+
+        Returns:
+            List[EnhancedXContent]: List of parsed EnhancedXContent objects.
+        """
+        # if dataset == [{"zero_result": True}] or not dataset:
+        #     return []
+        if len(dataset) == 0:
+            return []
+
+        results: List[EnhancedXContent] = []
+        for data in dataset:
+            try:
+                # Debug the structure of the data
+                # if 'media' in data:
+                #     bt.logging.debug(f"Media structure: {type(data['media'])}")
+                #     if isinstance(data['media'], list) and data['media']:
+                #         bt.logging.debug(f"First media item: {type(data['media'][0])}")
+                #         if isinstance(data['media'][0], str):
+                #             # Fix for string media items: convert to dict format expected by from_apify_response
+                #             fixed_media = []
+                #             for media_url in data['media']:
+                #                 fixed_media.append({'media_url_https': media_url, 'type': 'photo'})
+                #             data['media'] = fixed_media
+
+                # Extract user information from author field
+                user_id = data.user.id_str #data.get('id')
+                username = data.user.username #data.get('userName')
+                display_name = data.user.displayname #data.get('name')
+                verified = data.user.blue or data.user.verified # data.get('isBlueVerified', False) or data.get('isVerified', False)
+                followers_count = data.user.followersCount #data.get('followers')
+                following_count = data.user.friendsCount #data.get('following')
+
+                # Extract tweet metadata
+                tweet_id = data.id_str  #data.get('id')
+                like_count = data.likeCount #data.get('likeCount')
+                retweet_count = data.retweetCount #data.get('retweetCount')
+                reply_count = data.replyCount #data.get('replyCount')
+                quote_count = data.quoteCount #data.get('quoteCount')
+                view_count = data.viewCount #data.get('viewCount')
+                is_retweet = data.retweetedTweet is not None #data.get('isRetweet', False)
+                is_reply = data.inReplyToTweetId is not None #data.get('isReply', False)
+                is_quote = data.quotedTweet is not None #data.get('isQuote', False)
+
+                # Extract conversation and reply data
+                conversation_id = data.conversationId #data.get('conversationId')
+                if data.inReplyToUser is not None:
+                    in_reply_to_user_id = data.inReplyToUser.id_str #data.get('inReplyToUserId')
+                    in_reply_to_username = data.inReplyToUser.username #data.get('inReplyToUsername')
+
+                # Extract hashtags and media
+                hashtags = []
+                cashtags = []
+                # if 'hashtags' in data:
+                #     hashtags = ["#" + item['text'] for item in data['hashtags']]
+                hashtags = ["#" + item for item in data.hashtags]
+                # if 'symbols' in data:
+                #     cashtags = ["$" + item['text'] for item in data['symbols']]
+                cashtags = ["$" + item for item in data.cashtags]
+
+                # Sort hashtags and cashtags by index if available
+                # sorted_tags = []
+                # if 'hashtags' in data :
+                #     if 'symbols' in data:
+                #         # Try to sort by indices if available
+                #         try:
+                #             hashtag_items = [
+                #                 {'text': item['text'], 'indices': item.get('indices', [0, 0]), 'type': 'hashtag'}
+                #                 for item in data['hashtags']]
+                #             cashtag_items = [
+                #                 {'text': item['text'], 'indices': item.get('indices', [0, 0]), 'type': 'symbol'}
+                #                 for item in data['symbols']]
+                #             combined = hashtag_items + cashtag_items
+
+                #             # Sort by first index
+                #             sorted_items = sorted(combined, key=lambda x: x['indices'][0])
+                #             sorted_tags = ["#" + item['text'] if item['type'] == 'hashtag' else "$" + item['text']
+                #                            for item in sorted_items]
+                #         except (KeyError, IndexError, TypeError):
+                #             # If sorting fails, just combine the lists
+                #             sorted_tags = hashtags + cashtags
+                #     else:
+                #         sorted_tags = hashtags
+                # else:
+                #     sorted_tags = hashtags + cashtags
+                sorted_tags = hashtags + cashtags
+
+                # Extract media content
+                media_urls = []
+                media_types = []
+
+                for media_item in data.media.photos:
+                    media_urls.append(media_item.url)
+                    media_types.append("photo")
+                for media_item in data.media.videos:
+                    media_urls.append(media_item.thumbnailUrl)
+                    media_types.append("video")
+                for media_item in data.media.animated:
+                    media_urls.append(media_item.thumbnailUrl)
+                    media_types.append("animated_gif")
+                    
+                # if 'media' in data:
+                #     for media_item in data['media']:
+                #         if isinstance(media_item, dict):
+                #             media_url = media_item.get('media_url_https')
+                #             if media_url:
+                #                 media_urls.append(media_url)
+                #                 media_types.append(media_item.get('type', 'photo'))
+                #         elif isinstance(media_item, str):
+                #             media_urls.append(media_item)
+                #             media_types.append('photo')
+
+                # # Handle extended entities media if present
+                # if 'extendedEntities' in data and 'media' in data['extendedEntities']:
+                #     for media_item in data['extendedEntities']['media']:
+                #         if isinstance(media_item, dict):
+                #             media_url = media_item.get('media_url_https')
+                #             if media_url and media_url not in media_urls:  # Avoid duplicates
+                #                 media_urls.append(media_url)
+                #                 media_types.append(media_item.get('type', 'photo'))
+
+                # Create timestamp from createdAt
+                timestamp = data.date #None
+                # if 'createdAt' in data:
+                #     try:
+                #         timestamp = dt.datetime.strptime(
+                #             data["createdAt"], "%a %b %d %H:%M:%S %z %Y"
+                #         )
+                #     except ValueError:
+                #         # Try alternative formats if the first one fails
+                #         try:
+                #             timestamp = dt.datetime.fromisoformat(data["createdAt"])
+                #         except ValueError:
+                #             timestamp = dt.datetime.now(dt.timezone.utc)
+
+                # Create the enhanced content object
+                enhanced_content = EnhancedXContent(
+                    # Basic fields
+                    username=f"@{username}" if username else "",
+                    text=utils.sanitize_scraped_tweet(data.rawContent), #utils.sanitize_scraped_tweet(data.get('text', '')),
+                    url=data.url, #data.get('url', ''),
+                    timestamp=timestamp,
+                    tweet_hashtags=sorted_tags,
+
+                    # Enhanced user fields
+                    user_id=user_id,
+                    user_display_name=display_name,
+                    user_verified=verified,
+                    user_followers_count=followers_count,
+                    user_following_count=following_count,
+
+                    # Enhanced tweet metadata
+                    tweet_id=tweet_id,
+                    like_count=like_count,
+                    retweet_count=retweet_count,
+                    reply_count=reply_count,
+                    quote_count=quote_count,
+                    is_retweet=is_retweet,
+                    is_reply=is_reply,
+                    is_quote=is_quote,
+
+                    # Media content
+                    media_urls=media_urls,
+                    media_types=media_types,
+
+                    # Additional metadata
+                    conversation_id=conversation_id,
+                    in_reply_to_user_id=in_reply_to_user_id,
+                    in_reply_to_username=in_reply_to_username
+                )
+                results.append(enhanced_content)
+
+            except Exception as e:
+                bt.logging.warning(
+                    f"Failed to decode EnhancedXContent from Apify response: {traceback.format_exc()}."
+                )
+                # Try simpler parsing as fallback
+                try:
+                    # Alternative parsing approach for problematic data
+                    text = data.rawContent #data.get('text', '')
+                    url = data.url #data.get('url', '')
+                    # created_at = data.get('createdAt', '')
+                    # author = data.get('author', {})
+                    username = data.user.username #author.get('userName', '')
+
+                    # Get basic tweet metadata
+                    tweet_id = data.id_str #data.get('id', None)
+                    like_count = data.likeCount #data.get('likeCount', None)
+                    retweet_count = data.retweetCount #data.get('retweetCount', None)
+                    reply_count = data.replyCount #data.get('replyCount', None)
+
+                    # Handle hashtags extraction
+                    # hashtags = []
+                    # if 'hashtags' in data:
+                    #     hashtags = ["#" + item['text'] for item in data['hashtags']]
+                    hashtags = ["#" + item for item in data.hashtags]
+
+                    # Create minimal enhanced content
+                    enhanced_content = EnhancedXContent(
+                        username=f"@{username}" if username else "",
+                        text=utils.sanitize_scraped_tweet(text),
+                        url=url,
+                        timestamp= data.date, #dt.datetime.strptime(created_at, "%a %b %d %H:%M:%S %z %Y")
+                        #if created_at else dt.datetime.now(dt.timezone.utc),
+                        tweet_hashtags=hashtags,
+                        tweet_id=tweet_id,
+                        like_count=like_count,
+                        retweet_count=retweet_count,
+                        reply_count=reply_count
+                    )
+                    results.append(enhanced_content)
+                    bt.logging.debug(f"Used fallback parsing for tweet: {url}")
+                except Exception as fallback_error:
+                    bt.logging.error(f"Fallback parsing also failed: {str(fallback_error)}")
+        return results
+    
     def _parse_enhanced_content(self, dataset: List[dict]) -> List[EnhancedXContent]:
         """
         Parse the dataset into EnhancedXContent objects with all available metadata.
@@ -310,29 +549,11 @@ class EnhancedApiDojoTwitterScraper(ApiDojoTwitterScraper):
         bt.logging.success(f"Performing Twitter scrape for search terms: {query}.")
 
         # Run the Actor and retrieve the scraped data.
-        dataset: List[dict] = None
+        # dataset: List[dict] = None
         try:
-            data = {
-                "query": query,
-                "maxTweetsNbr": max_items
-            }
-
-            headers = {
-                "Content-Type": "application/json"
-            }
-            health = requests.get(scrape_config.scraper_base+"health")
-            if health.status_code != 200:
-                raise ConnectionError(
-                    f"scraper url {scrape_config.scraper_base} is not healthy. Status code: {health.status_code}"
-                )
-
-            get_tweets_url = scrape_config.scraper_base+"api/v1/tweets"
-            response = requests.post(get_tweets_url, json=data, headers=headers)
-            if response.status_code != 200:
-                raise ConnectionError(
-                    f"query {get_tweets_url} failed. Status code: {response.status_code}"
-                )
-            dataset: List[dict] = response.json().get("tweets",[])
+            pool = AccountsPool()
+            api = API(pool)
+            tweets = await gather(api.search(query,max_items))
         except Exception:
             bt.logging.error(
                 f"Failed to scrape tweets using search terms {query}: {traceback.format_exc()}."
@@ -340,7 +561,7 @@ class EnhancedApiDojoTwitterScraper(ApiDojoTwitterScraper):
             return []
 
         # Parse the results using both standard and enhanced methods
-        x_contents, is_retweets = self._best_effort_parse_dataset(dataset)
+        x_contents, is_retweets = self._best_effort_parse_tweets(tweets)
 
         bt.logging.success(
             f"Completed scrape for {query}. Scraped {len(x_contents)} items."

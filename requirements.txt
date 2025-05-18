@@ -26,3 +26,4 @@ aiosqlite>=0.17.0
 fake-useragent>=1.4.0
 httpx>=0.26.0
 pyotp>=2.9.0
+mysql-connector-python==9.3.0

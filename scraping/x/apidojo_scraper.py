@@ -1,3 +1,4 @@
+import re
 import asyncio
 import threading
 import traceback
@@ -337,14 +338,33 @@ class ApiDojoTwitterScraper(Scraper):
                 # Safely retrieve hashtags and symbols lists using dictionary.get() method
                 # hashtags = data.get('hashtags', [])
                 # cashtags = data.get('symbols', [])
+      
+                hashtags = []
+                cashtags = []
+                
+                # Compile regex patterns once for better performance
+                hashtag_pattern = re.compile(r'(#)([\w\u00C0-\uFFFF]+)')  # Matches #prefix with Unicode
+                cashtag_pattern = re.compile(r'(\$)([A-Za-z]{1,5}\b)')      # Matches $prefix with 1-5 letters
+                
+                # Find all hashtag matches
+                for match in hashtag_pattern.finditer(text):
+                    hashtags.append({
+                        "text": match.group(2),   # Second group (actual content)
+                        "indices": [match.start(), match.end()],  # Start and end of match}
+                    })
+                
+                # Find all symbol matches
+                for match in cashtag_pattern.finditer(text):
+                    cashtags.append({
+                        "text": match.group(2),   # Second group (actual content)
+                        "indices": [match.start(), match.end()],  # Start and end of match}
+                    })
 
                 # Combine hashtags and cashtags into one list and sort them by their first index
-                # sorted_tags = sorted(hashtags + cashtags, key=lambda x: x['indices'][0])
-                sorted_tags = tweet.hashtags + tweet.cashtags
+                sorted_tags = sorted(hashtags + cashtags, key=lambda x: x['indices'][0])          
 
                 # Create a list of formatted tags with prefixes
-                # tags = ["#" + item['text'] for item in sorted_tags]
-                tags = ["#" + item for item in sorted_tags]
+                tags = ["#" + item['text'] for item in sorted_tags]
 
                 # Extract media URLs from the data
                 media_urls = []

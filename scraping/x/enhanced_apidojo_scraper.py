@@ -2,6 +2,7 @@ import asyncio
 import threading
 import traceback
 import bittensor as bt
+import re
 from twscrape import API, AccountsPool, gather
 from twscrape.models import Tweet
 from typing import List, Tuple, Optional, Dict, Any
@@ -121,39 +122,55 @@ class EnhancedApiDojoTwitterScraper(ApiDojoTwitterScraper):
                 # Extract hashtags and media
                 hashtags = []
                 cashtags = []
+                
+                # Compile regex patterns once for better performance
+                hashtag_pattern = re.compile(r'(#)([\w\u00C0-\uFFFF]+)')  # Matches #prefix with Unicode
+                cashtag_pattern = re.compile(r'(\$)([A-Za-z]{1,5}\b)')      # Matches $prefix with 1-5 letters
+                
+                # Find all hashtag matches
+                for match in hashtag_pattern.finditer(text):
+                    hashtags.append({
+                        "text": match.group(2),   # Second group (actual content)
+                        "indices": [match.start(), match.end()],  # Start and end of match}
+                    })
+                
+                # Find all symbol matches
+                for match in cashtag_pattern.finditer(text):
+                    cashtags.append({
+                        "text": match.group(2),   # Second group (actual content)
+                        "indices": [match.start(), match.end()],  # Start and end of match}
+                    })
+
                 # if 'hashtags' in data:
                 #     hashtags = ["#" + item['text'] for item in data['hashtags']]
-                hashtags = ["#" + item for item in data.hashtags]
                 # if 'symbols' in data:
                 #     cashtags = ["$" + item['text'] for item in data['symbols']]
-                cashtags = ["$" + item for item in data.cashtags]
 
                 # Sort hashtags and cashtags by index if available
-                # sorted_tags = []
-                # if 'hashtags' in data :
-                #     if 'symbols' in data:
-                #         # Try to sort by indices if available
-                #         try:
-                #             hashtag_items = [
-                #                 {'text': item['text'], 'indices': item.get('indices', [0, 0]), 'type': 'hashtag'}
-                #                 for item in data['hashtags']]
-                #             cashtag_items = [
-                #                 {'text': item['text'], 'indices': item.get('indices', [0, 0]), 'type': 'symbol'}
-                #                 for item in data['symbols']]
-                #             combined = hashtag_items + cashtag_items
+                sorted_tags = []
+                # if len(hashtags) > 0:
+                #     if len(cashtags) > 0:
+                        # Try to sort by indices if available
+                # try:
+                hashtag_items = [
+                    {'text': item['text'], 'indices': item['indices'], 'type': 'hashtag'}
+                    for item in hashtags]
+                cashtag_items = [
+                    {'text': item['text'], 'indices': item['indices'], 'type': 'symbol'}
+                    for item in cashtags]
+                combined = hashtag_items + cashtag_items
 
-                #             # Sort by first index
-                #             sorted_items = sorted(combined, key=lambda x: x['indices'][0])
-                #             sorted_tags = ["#" + item['text'] if item['type'] == 'hashtag' else "$" + item['text']
-                #                            for item in sorted_items]
-                #         except (KeyError, IndexError, TypeError):
-                #             # If sorting fails, just combine the lists
-                #             sorted_tags = hashtags + cashtags
+                # Sort by first index
+                sorted_items = sorted(combined, key=lambda x: x['indices'][0])
+                sorted_tags = ["#" + item['text'] if item['type'] == 'hashtag' else "$" + item['text']
+                                for item in sorted_items]
+                        # except (KeyError, IndexError, TypeError):
+                        #     # If sorting fails, just combine the lists
+                        #     sorted_tags = hashtags + cashtags
                 #     else:
                 #         sorted_tags = hashtags
                 # else:
                 #     sorted_tags = hashtags + cashtags
-                sorted_tags = hashtags + cashtags
 
                 # Extract media content
                 media_urls = []

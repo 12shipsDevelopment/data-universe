@@ -301,7 +301,9 @@ class MySQLMinerStorage(MinerStorage):
                         content_size_bytes=row[6],
                         label=DataLabel(value=row[4]) if row[4] != "NULL" else None
                     )
-
+                    bt.logging.info( 
+                        f"Adding data entity {data_entity} to bucket {data_entity_bucket_id}"
+                    )
                     data_entities.append(data_entity)
                     running_size += row[6]
 

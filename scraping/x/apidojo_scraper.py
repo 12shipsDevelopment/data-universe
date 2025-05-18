@@ -389,7 +389,7 @@ class ApiDojoTwitterScraper(Scraper):
                         username=tweet.user.username, #data['userName'],  # utils.extract_user(data["url"]),
                         text=utils.sanitize_scraped_tweet(text),
                         url= tweet.url, #data["url"],
-                        timestamp= tweet.date, #dt.datetime.strptime(
+                        timestamp= tweet.date.replace(tzinfo=dt.timezone.utc), #dt.datetime.strptime(
                         #     data["createdAt"], "%a %b %d %H:%M:%S %z %Y"
                         # ),
                         tweet_hashtags=tags,

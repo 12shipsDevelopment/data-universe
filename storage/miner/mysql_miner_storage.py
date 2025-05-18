@@ -304,6 +304,7 @@ class MySQLMinerStorage(MinerStorage):
                     bt.logging.info( 
                         f"Adding data entity {data_entity} to bucket {data_entity_bucket_id}"
                     )
+                    data_entity.datetime = data_entity.datetime.replace(tzinfo=dt.timezone.utc)
                     data_entities.append(data_entity)
                     running_size += row[6]
 

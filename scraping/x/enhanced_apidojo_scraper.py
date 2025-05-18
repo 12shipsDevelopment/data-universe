@@ -207,7 +207,7 @@ class EnhancedApiDojoTwitterScraper(ApiDojoTwitterScraper):
                 #                 media_types.append(media_item.get('type', 'photo'))
 
                 # Create timestamp from createdAt
-                timestamp = data.date #None
+                timestamp = data.date.replace(tzinfo=dt.timezone.utc) #None
                 # if 'createdAt' in data:
                 #     try:
                 #         timestamp = dt.datetime.strptime(
@@ -287,7 +287,7 @@ class EnhancedApiDojoTwitterScraper(ApiDojoTwitterScraper):
                         username=f"@{username}" if username else "",
                         text=utils.sanitize_scraped_tweet(text),
                         url=url,
-                        timestamp= data.date, #dt.datetime.strptime(created_at, "%a %b %d %H:%M:%S %z %Y")
+                        timestamp= data.date.replace(tzinfo=dt.timezone.utc), #dt.datetime.strptime(created_at, "%a %b %d %H:%M:%S %z %Y")
                         #if created_at else dt.datetime.now(dt.timezone.utc),
                         tweet_hashtags=hashtags,
                         tweet_id=tweet_id,

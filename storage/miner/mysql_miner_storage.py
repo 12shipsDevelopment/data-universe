@@ -18,7 +18,13 @@ from common.data import (
 from storage.miner.miner_storage import MinerStorage
 from typing import Dict, List
 import bittensor as bt
-
+class UTCDateTimeConverter(mysql.connector.conversion.MySQLConverter):
+    def _DATETIME_to_python(self, value, desc=None):
+        dt = super()._DATETIME_to_python(value, desc)
+        if isinstance(dt, dt.datetime):
+            return dt.replace(tzinfo=dt.timezone.utc)
+        return dt
+    
 class MySQLMinerStorage(MinerStorage):
     """MySQL backed MinerStorage"""
 
@@ -54,6 +60,8 @@ class MySQLMinerStorage(MinerStorage):
             'password': password,
             'database': database,
             'charset': 'utf8mb4',
+            'use_pure': True,
+            'converter_class': UTCDateTimeConverter,
         }
 
         self.database_max_content_size_bytes = utils.gb_to_bytes(
@@ -295,7 +303,7 @@ class MySQLMinerStorage(MinerStorage):
                     # Construct the new DataEntity with all non null columns.
                     data_entity = DataEntity(
                         uri=row[0],
-                        datetime=row[1],
+                        datetime=row[1].replace(tzinfo=dt.timezone.utc),
                         source=DataSource(row[3]),
                         content=row[5],
                         content_size_bytes=row[6],

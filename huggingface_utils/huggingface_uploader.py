@@ -3,7 +3,8 @@ import json
 import datetime as dt
 import pandas as pd
 import bittensor as bt
-import sqlite3
+# import sqlite3
+import mysql.connector
 import re
 import time
 import requests
@@ -73,7 +74,15 @@ class DualUploader:
 
     @contextmanager
     def get_db_connection(self):
-        conn = sqlite3.connect(self.db_path, timeout=60.0)  # Added timeout
+        # conn = sqlite3.connect(self.db_path, timeout=60.0)  # Added timeout
+        connection_config = {
+            'host': 'localhost',
+            'user': 'taos',
+            'password': 'taos@2025',
+            'database': 'sn13',
+            'charset': 'utf8mb4',
+        }
+        conn = mysql.connector.connect(**connection_config)
         try:
             # Enhanced optimization settings
             conn.execute("PRAGMA journal_mode=WAL")

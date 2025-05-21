@@ -209,14 +209,14 @@ class MySQLMinerStorage(MinerStorage):
 
     def should_upload_hf_data(self, unique_id: str) -> bool:
         sql_query = """
-            SELECT datetime(AVG(strftime('%s', UpdatedAt)), 'unixepoch') AS AvgUpdatedAt
+            SELECT FROM_UNIXTIME(AVG(UNIX_TIMESTAMP(UpdatedAt))) AS AvgUpdatedAt
             FROM (
                 SELECT UpdatedAt
                 FROM HFMetaData
                 WHERE uri LIKE %s
                 ORDER BY UpdatedAt DESC
                 LIMIT 2
-            );
+            ) AS subquery;
         """
         try:
             with contextlib.closing(self._create_connection()) as connection:
@@ -227,7 +227,9 @@ class MySQLMinerStorage(MinerStorage):
                 if result is None or result[0] is None:
                     return True  # No data found, should upload
 
-                average_datetime = dt.datetime.strptime(result[0], "%Y-%m-%d %H:%M:%S")
+                average_datetime = result[0]  # MySQL already returns datetime object
+                if isinstance(average_datetime, str): 
+                    average_datetime = dt.datetime.strptime(average_datetime, "%Y-%m-%d %H:%M:%S")
                 average_datetime = average_datetime.replace(tzinfo=dt.timezone.utc)
 
                 current_datetime = dt.datetime.now(dt.timezone.utc)

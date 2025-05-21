@@ -84,14 +84,21 @@ class DualUploader:
         }
         conn = mysql.connector.connect(**connection_config)
         try:
+            cursor = conn.cursor()
             # Enhanced optimization settings
-            conn.execute("PRAGMA journal_mode=WAL")
-            conn.execute("PRAGMA synchronous=NORMAL")
-            conn.execute("PRAGMA temp_store=MEMORY")
-            conn.execute("PRAGMA cache_size=-2000000")  # Increased to 2GB
-            conn.execute("PRAGMA page_size=16384")  # Optimized page size
-            conn.execute("PRAGMA mmap_size=30000000000")  # 30GB memory mapping
-            yield conn
+            cursor.execute("PRAGMA journal_mode=WAL")
+            cursor.execute("PRAGMA synchronous=NORMAL")
+            cursor.execute("PRAGMA temp_store=MEMORY")
+            cursor.execute("PRAGMA cache_size=-2000000")  # Increased to 2GB
+            cursor.execute("PRAGMA page_size=16384")  # Optimized page size
+            cursor.execute("PRAGMA mmap_size=30000000000")  # 30GB memory mapping
+            yield cursor
+        except mysql.connector.Error as e:
+            bt.logging.error(f"Database error: {e}")
+            raise
+        except Exception as e:
+            bt.logging.error(f"Unexpected error: {e}")
+            raise
         finally:
             conn.close()
 

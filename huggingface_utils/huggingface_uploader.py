@@ -92,26 +92,27 @@ class DualUploader:
             # cursor.execute("PRAGMA page_size=16384")  # Optimized page size
             # cursor.execute("PRAGMA mmap_size=30000000000")  # 30GB memory mapping
             
-            cursor = conn.cursor()
-            # 1. Similar to `journal_mode=WAL` (trade durability for write performance)
-            cursor.execute("SET GLOBAL innodb_flush_log_at_trx_commit=2")  # 0=fastest (unsafe), 1=safest, 2=balanced
+            ## need SUPER privilege to set these variables
+            # cursor = conn.cursor()
+            # # 1. Similar to `journal_mode=WAL` (trade durability for write performance)
+            # cursor.execute("SET GLOBAL innodb_flush_log_at_trx_commit=2")  # 0=fastest (unsafe), 1=safest, 2=balanced
 
-            # 2. Similar to `synchronous=NORMAL` (reduce disk syncs)
-            cursor.execute("SET GLOBAL sync_binlog=0")  # 0=delay binlog sync for better performance
+            # # 2. Similar to `synchronous=NORMAL` (reduce disk syncs)
+            # cursor.execute("SET GLOBAL sync_binlog=0")  # 0=delay binlog sync for better performance
 
-            # 3. Similar to `temp_store=MEMORY` (optimize in-memory temp tables)
-            cursor.execute("SET GLOBAL tmp_table_size=256M")
-            cursor.execute("SET GLOBAL max_heap_table_size=256M")
+            # # 3. Similar to `temp_store=MEMORY` (optimize in-memory temp tables)
+            # cursor.execute("SET GLOBAL tmp_table_size=256M")
+            # cursor.execute("SET GLOBAL max_heap_table_size=256M")
 
-            # 4. Similar to `cache_size=2GB` (InnoDB buffer pool)
-            cursor.execute("SET GLOBAL innodb_buffer_pool_size=2G")
+            # # 4. Similar to `cache_size=2GB` (InnoDB buffer pool)
+            # cursor.execute("SET GLOBAL innodb_buffer_pool_size=2G")
 
-            # 5. `page_size=16K` (MySQL defaults to 16KB, usually no need to change)
-            # Requires my.cnf config: `innodb_page_size=16K`
+            # # 5. `page_size=16K` (MySQL defaults to 16KB, usually no need to change)
+            # # Requires my.cnf config: `innodb_page_size=16K`
 
-            # 6. Similar to `mmap_size=30GB` (InnoDB buffer pool)
-            cursor.execute("SET GLOBAL innodb_buffer_pool_size=30G")
-            cursor.close()
+            # # 6. Similar to `mmap_size=30GB` (InnoDB buffer pool)
+            # cursor.execute("SET GLOBAL innodb_buffer_pool_size=30G")
+            # cursor.close()
 
             yield conn
         except mysql.connector.Error as e:
@@ -187,7 +188,7 @@ class DualUploader:
             query = """
                 SELECT datetime, label, content
                 FROM DataEntity
-                WHERE source = ?
+                WHERE source = %s
                 ORDER BY datetime ASC
                 LIMIT 200000000
             """
@@ -196,8 +197,8 @@ class DualUploader:
             query = """
                 SELECT datetime, label, content
                 FROM DataEntity
-                WHERE source = ?
-                AND datetime > ?
+                WHERE source = %s
+                AND datetime > %s
                 ORDER BY datetime ASC
             """
             params = [source, last_upload]

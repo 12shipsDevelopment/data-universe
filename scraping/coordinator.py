@@ -262,7 +262,9 @@ class ScraperCoordinator:
                 start_time = dt.datetime.now()
                 qs = self.queue.qsize()
 
+                bt.logging.info(f"1{name} {qs}")
                 scrape_fn = await self.queue.get()
+                bt.logging.info(f"2{name} {qs}")
                 # Perform the scrape
                 data_entities = await scrape_fn()
 

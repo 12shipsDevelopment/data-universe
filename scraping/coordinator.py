@@ -192,7 +192,7 @@ class ScraperCoordinator:
         self.config = config
 
         self.tracker = ScraperCoordinator.Tracker(self.config, dt.datetime.utcnow())
-        self.max_workers = 5
+        self.max_workers = 15
         self.is_running = False
         self.queue = asyncio.Queue()
 
@@ -233,7 +233,7 @@ class ScraperCoordinator:
             if not scraper_ids_to_scrape_now:
                 bt.logging.trace("Nothing ready to scrape yet. Trying again in 15s.")
                 # Nothing is due a scrape. Wait a few seconds and try again
-                await asyncio.sleep(1)
+                await asyncio.sleep(0.5)
                 continue
 
             for scraper_id in scraper_ids_to_scrape_now:

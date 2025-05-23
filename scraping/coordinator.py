@@ -259,12 +259,19 @@ class ScraperCoordinator:
         while self.is_running:
             try:
                 # Wait for a scraping task to be added to the queue.
-                scrape_fn = await self.queue.get()
+                start_time = dt.datetime.now()
+                qs = self.queue.qsize()
 
+                scrape_fn = await self.queue.get()
                 # Perform the scrape
                 data_entities = await scrape_fn()
 
                 self.storage.store_data_entities(data_entities)
                 self.queue.task_done()
+
+                end_time = dt.datetime.now()
+                time_diff = end_time - start_time
+
+                bt.logging.info(f"{name} {qs} elapsed: {time_diff.total_seconds():.2f} s.")
             except Exception as e:
                 bt.logging.error("Worker " + name + ": " + traceback.format_exc())

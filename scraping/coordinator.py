@@ -225,6 +225,7 @@ class ScraperCoordinator:
             )
             workers.append(worker)
 
+        time0 = dt.datetime.now()
         while self.is_running:
             now = dt.datetime.utcnow()
             scraper_ids_to_scrape_now = self.tracker.get_scraper_ids_ready_to_scrape(

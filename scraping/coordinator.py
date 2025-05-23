@@ -235,6 +235,7 @@ class ScraperCoordinator:
                 # Nothing is due a scrape. Wait a few seconds and try again
                 await asyncio.sleep(0.5)
                 continue
+            time1 = dt.datetime.now()
 
             for scraper_id in scraper_ids_to_scrape_now:
                 scraper = self.provider.get(scraper_id)
@@ -246,9 +247,14 @@ class ScraperCoordinator:
                     # now rather than being lazily evaluated (if a lambda was used).
                     # https://pylint.readthedocs.io/en/latest/user_guide/messages/warning/cell-var-from-loop.html#cell-var-from-loop-w0640
                     bt.logging.info(f"Adding scrape task for {scraper_id}: {config}.")
+                    time21 = dt.datetime.now()
                     self.queue.put_nowait(functools.partial(scraper.scrape, config))
+                    time22 = dt.datetime.now()
+                    bt.logging.info(f"to queue {(time22 - time21).total_seconds():.2f}")
 
                 self.tracker.on_scrape_scheduled(scraper_id, now)
+            time2 = dt.datetime.now()
+            bt.logging.info(f"one round {(time2 - time1).total_seconds():.2f} db:{(time1-now).total_seconds():.2f} s.")
 
         bt.logging.info("Coordinator shutting down. Waiting for workers to finish.")
         await asyncio.gather(*workers)

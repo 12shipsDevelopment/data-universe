@@ -284,6 +284,7 @@ class ApiDojoTwitterScraper(Scraper):
         # )
 
         bt.logging.success(f"Performing Twitter scrape for search terms: {query}.")
+        start_time = dt.datetime.now()
 
         # Run the Actor and retrieve the scraped data.
         # dataset: List[dict] = None
@@ -300,8 +301,10 @@ class ApiDojoTwitterScraper(Scraper):
         # Return the parsed results, ignoring data that can't be parsed.
         x_contents, is_retweets = self._best_effort_parse_tweets(tweets)
 
+        end_time = dt.datetime.now()
+        time_diff = end_time - start_time
         bt.logging.success(
-            f"Completed scrape for {query}. Scraped {len(x_contents)} items."
+            f"Completed scrape for {query}. Scraped {len(x_contents)} items. elapsed time: {time_diff.total_seconds():.2f} seconds."
         )
 
         data_entities = []

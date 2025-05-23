@@ -192,7 +192,7 @@ class ScraperCoordinator:
         self.config = config
 
         self.tracker = ScraperCoordinator.Tracker(self.config, dt.datetime.utcnow())
-        self.max_workers = 15
+        self.max_workers = 20
         self.is_running = False
         self.queue = asyncio.Queue()
 
@@ -225,7 +225,6 @@ class ScraperCoordinator:
             )
             workers.append(worker)
 
-        time0 = dt.datetime.now()
         while self.is_running:
             now = dt.datetime.utcnow()
             scraper_ids_to_scrape_now = self.tracker.get_scraper_ids_ready_to_scrape(
@@ -234,13 +233,8 @@ class ScraperCoordinator:
             if not scraper_ids_to_scrape_now:
                 bt.logging.info("Nothing ready to scrape yet. Trying again in 15s.")
                 # Nothing is due a scrape. Wait a few seconds and try again
-                time00 = dt.datetime.now()
-                await asyncio.sleep(0.5)
-                time01 = dt.datetime.now()
-                bt.logging.info(f"sleep {(time00 - time01).total_seconds():.2f}")
+                await asyncio.sleep(1)
                 continue
-            bt.logging.info(f"{(dt.datetime.now() - time0).total_seconds():.2f}")
-            time0 = dt.datetime.now()
 
             for scraper_id in scraper_ids_to_scrape_now:
                 scraper = self.provider.get(scraper_id)
@@ -255,7 +249,6 @@ class ScraperCoordinator:
                     self.queue.put_nowait(functools.partial(scraper.scrape, config))
 
                 self.tracker.on_scrape_scheduled(scraper_id, now)
-            time2 = dt.datetime.now()
 
         bt.logging.info("Coordinator shutting down. Waiting for workers to finish.")
         await asyncio.gather(*workers)

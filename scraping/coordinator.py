@@ -192,7 +192,7 @@ class ScraperCoordinator:
         self.config = config
 
         self.tracker = ScraperCoordinator.Tracker(self.config, dt.datetime.utcnow())
-        self.max_workers = 5
+        self.max_workers = 15
         self.is_running = False
         self.queue = asyncio.Queue()
 

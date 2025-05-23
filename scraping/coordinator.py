@@ -227,6 +227,7 @@ class ScraperCoordinator:
 
         while self.is_running:
             now = dt.datetime.utcnow()
+            time0 = dt.datetime.now()
             scraper_ids_to_scrape_now = self.tracker.get_scraper_ids_ready_to_scrape(
                 now
             )
@@ -254,7 +255,7 @@ class ScraperCoordinator:
 
                 self.tracker.on_scrape_scheduled(scraper_id, now)
             time2 = dt.datetime.now()
-            bt.logging.info(f"one round {(time2 - time1).total_seconds():.2f} db:{(time1-now).total_seconds():.2f} s.")
+            bt.logging.info(f"one round {(time2 - time1).total_seconds():.2f} db:{(time1-time0).total_seconds():.2f} s.")
 
         bt.logging.info("Coordinator shutting down. Waiting for workers to finish.")
         await asyncio.gather(*workers)

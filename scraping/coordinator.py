@@ -266,12 +266,14 @@ class ScraperCoordinator:
                 # Perform the scrape
                 data_entities = await scrape_fn()
 
+                scrape_time = dt.datetime.now()
+
                 self.storage.store_data_entities(data_entities)
                 self.queue.task_done()
 
                 end_time = dt.datetime.now()
-                time_diff = end_time - start_time
+                time_diff = end_time - scrape_time
 
-                bt.logging.info(f"{name} {qs} elapsed: {time_diff.total_seconds():.2f} s.")
+                bt.logging.info(f"{name} {qs} elapsed: scrape:{(scrape_time - start_time).total_seconds():.2f} db:{time_diff.total_seconds():.2f} s.")
             except Exception as e:
                 bt.logging.error("Worker " + name + ": " + traceback.format_exc())

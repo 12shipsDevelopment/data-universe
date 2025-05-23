@@ -274,6 +274,6 @@ class ScraperCoordinator:
                 end_time = dt.datetime.now()
                 time_diff = end_time - scrape_time
 
-                bt.logging.info(f"{name} {qs} elapsed: scrape:{(scrape_time - start_time).total_seconds():.2f} db:{time_diff.total_seconds():.2f} s.")
+                bt.logging.info(f"{name} {qs} {threading.current_thread().name} elapsed: scrape:{(scrape_time - start_time).total_seconds():.2f} db:{time_diff.total_seconds():.2f} s.")
             except Exception as e:
                 bt.logging.error("Worker " + name + ": " + traceback.format_exc())

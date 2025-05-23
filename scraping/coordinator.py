@@ -231,7 +231,7 @@ class ScraperCoordinator:
                 now
             )
             if not scraper_ids_to_scrape_now:
-                bt.logging.trace("Nothing ready to scrape yet. Trying again in 15s.")
+                bt.logging.info("Nothing ready to scrape yet. Trying again in 15s.")
                 # Nothing is due a scrape. Wait a few seconds and try again
                 await asyncio.sleep(0.5)
                 continue
@@ -245,7 +245,7 @@ class ScraperCoordinator:
                     # Use .partial here to make sure the functions arguments are copied/stored
                     # now rather than being lazily evaluated (if a lambda was used).
                     # https://pylint.readthedocs.io/en/latest/user_guide/messages/warning/cell-var-from-loop.html#cell-var-from-loop-w0640
-                    bt.logging.trace(f"Adding scrape task for {scraper_id}: {config}.")
+                    bt.logging.info(f"Adding scrape task for {scraper_id}: {config}.")
                     self.queue.put_nowait(functools.partial(scraper.scrape, config))
 
                 self.tracker.on_scrape_scheduled(scraper_id, now)
@@ -262,9 +262,7 @@ class ScraperCoordinator:
                 start_time = dt.datetime.now()
                 qs = self.queue.qsize()
 
-                bt.logging.info(f"1{name} {qs}")
                 scrape_fn = await self.queue.get()
-                bt.logging.info(f"2{name} {qs}")
                 # Perform the scrape
                 data_entities = await scrape_fn()
 

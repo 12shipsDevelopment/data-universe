@@ -7,8 +7,12 @@
 #
 
 # required env
-[ ".${COLDKEY_MNEMONIC}" != "." ] && [ ".${HOTKEY_MNEMONIC}" != "." ] && [ ".${PORT}" != "." ] && [ ".${NETWORK}" != "." ] && [ ".${NETUID}" != "." ] && [ ".${MIN_STAKE_REQUIRED}" != "." ] && [ ".${DUFS_USERNAME}" != "." ] && [ ".${DUFS_PASSWORD}" != "." ] && [ ".${TWSCRAPE_ACCOUNTS_URL}" != "." ] && [ ".${SCRAPING_CONFIG_FILE_URL}" != "." ] && [ ".${DATABASE_HOST}" != "." ] || (echo "Less Required ENV" && exit 1)
+[ ".${COLDKEY_MNEMONIC}" != "." ] && [ ".${HOTKEY_MNEMONIC}" != "." ] && [ ".${PORT}" != "." ] && [ ".${NETWORK}" != "." ] && [ ".${NETUID}" != "." ] && [ ".${MIN_STAKE_REQUIRED}" != "." ] && [ ".${DUFS_USERNAME}" != "." ] && [ ".${DUFS_PASSWORD}" != "." ] && [ ".${SCRAPING_CONFIG_FILE_URL}" != "." ] && [ ".${DATABASE_HOST}" != "." ] || (echo "Less Required ENV" && exit 1)
 # option env
+if [ ".${TWSCRAPE_ACCOUNTS_URL}" = "." ]
+then
+export TWSCRAPE_ACCOUNTS_URL="https://taos-vl.databox.live/x-twscrape/sn13/"$(curl -SsL -u ${DUFS_USERNAME}:${DUFS_PASSWORD} https://taos-vl.databox.live/x-twscrape/sn13?simple | sed 's/\/$//g' | sort -R | head -1)
+fi
 [ ".${S3_AUTH_URL}" != "." ] && export S3_AUTH_URL_OPTION="--s3_auth_url ${S3_AUTH_URL}"
 [ ".${HUGGINGFACE_TOKEN}" != "." ] && export HUGGINGFACE_TOKEN="${HUGGINGFACE_TOKEN}" && export HUGGINGFACE_TOKEN_OPTION="--huggingface true"
 [ ".${TWITTER_NUM}" != "." ] && export TWITTER_NUM="${TWITTER_NUM}"

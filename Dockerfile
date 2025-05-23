@@ -2,7 +2,7 @@
 FROM python:3.10-slim
 
 # Install dependencies
-RUN apt-get update && apt-get install -y iproute2 vnstat curl && rm -rf /var/lib/apt/lists/* && echo "alias ls='ls --color=auto'" >> $HOME/.bashrc
+RUN apt-get update && apt-get install -y git iproute2 vnstat curl && rm -rf /var/lib/apt/lists/* && echo "alias ls='ls --color=auto'" >> $HOME/.bashrc
 
 # Set working directory
 WORKDIR /app

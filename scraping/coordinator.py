@@ -233,7 +233,7 @@ class ScraperCoordinator:
             if not scraper_ids_to_scrape_now:
                 bt.logging.info("Nothing ready to scrape yet. Trying again in 15s.")
                 # Nothing is due a scrape. Wait a few seconds and try again
-                await asyncio.sleep(1)
+                await asyncio.sleep(5)
                 continue
 
             for scraper_id in scraper_ids_to_scrape_now:

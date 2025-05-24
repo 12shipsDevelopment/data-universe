@@ -34,6 +34,7 @@ class ApiDojoTwitterScraper(Scraper):
 
     def __init__(self, runner: ActorRunner = ActorRunner()):
         self.runner = runner
+        self.api = API(AccountsPool())
 
     async def validate(self, entities: List[DataEntity]) -> List[ValidationResult]:
         """Validate the correctness of a DataEntity by URI."""
@@ -289,9 +290,7 @@ class ApiDojoTwitterScraper(Scraper):
         # Run the Actor and retrieve the scraped data.
         # dataset: List[dict] = None
         try:
-            pool = AccountsPool()
-            api = API(pool)
-            tweets = await gather(api.search(query,max_items))
+            tweets = await gather(self.api.search(query,max_items))
         except Exception:
             bt.logging.error(
                 f"Failed to scrape tweets using search terms {query}: {traceback.format_exc()}."

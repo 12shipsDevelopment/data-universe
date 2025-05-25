@@ -68,21 +68,14 @@ class MySQLMinerStorage(MinerStorage):
             max_database_size_gb_hint
         )
 
-        # Create persistent connection
-        self.connection = mysql.connector.connect(**self.connection_config)
-        
-        # Create cursor for initialization
-        cursor = self.connection.cursor()
+        with contextlib.closing(self._create_connection()) as connection:
+            cursor = connection.cursor()
 
-        # Create the DataEntity table (if it does not already exist).
-        cursor.execute(MySQLMinerStorage.DATA_ENTITY_TABLE_CREATE)
+            # Create the DataEntity table (if it does not already exist).
+            cursor.execute(MySQLMinerStorage.DATA_ENTITY_TABLE_CREATE)
 
-        # Create the huggingface table to store HF Info
-        cursor.execute(MySQLMinerStorage.HF_METADATA_TABLE_CREATE)
-        
-        # Commit changes and close initialization cursor
-        self.connection.commit()
-        cursor.close()
+            # Create the huggingface table to store HF Info
+            cursor.execute(MySQLMinerStorage.HF_METADATA_TABLE_CREATE)
 
         # Update the HFMetaData for miners who created this table in previous versions
         self._ensure_hf_metadata_schema()
@@ -97,19 +90,15 @@ class MySQLMinerStorage(MinerStorage):
         self.cached_index_4 = None
         self.cached_index_updated = dt.datetime.min
 
-    def _get_cursor(self):
-        """Returns a new cursor from the persistent connection"""
-        return self.connection.cursor()
-    
-    def __del__(self):
-        """Clean up the connection when the object is destroyed"""
-        if hasattr(self, 'connection') and self.connection:
-            self.connection.close()
+    def _create_connection(self):
+        conn = mysql.connector.connect(**self.connection_config)
+
+        return conn
 
     def _ensure_hf_metadata_schema(self):
         print("Ensuring HF metadata schema...")
-        # with contextlib.closing(self._get_cursor()) as cursor:
-        #     
+        # with contextlib.closing(self._create_connection()) as connection:
+        #     cursor = connection.cursor()
 
         #     # Check if the encodingKey column exists
         #     cursor.execute("SELECT * "
@@ -122,7 +111,7 @@ class MySQLMinerStorage(MinerStorage):
         #         cursor.execute("ALTER TABLE HFMetaData ADD COLUMN encodingKey VARCHAR(512)")
         #         bt.logging.info("Added encodingKey column to HFMetaData table")
 
-        #     self.connection.commit()
+        #     connection.commit()
 
     def store_data_entities(self, data_entities: List[DataEntity]):
         """Stores any number of DataEntities, making space if necessary."""
@@ -140,11 +129,11 @@ class MySQLMinerStorage(MinerStorage):
                 + str(self.database_max_content_size_bytes)
             )
 
-        with contextlib.closing(self._get_cursor()) as cursor:
+        with contextlib.closing(self._create_connection()) as connection:
             # Ensure only one thread is clearing space when necessary.
-            # with self.clearing_space_lock:
+            with self.clearing_space_lock:
                 # If we would exceed our maximum configured stored content size then clear space.
-                
+                # cursor = connection.cursor()
                 # cursor.execute("SELECT SUM(contentSizeBytes) FROM DataEntity")
 
                 # # If there are no rows we convert the None result to 0
@@ -190,10 +179,11 @@ class MySQLMinerStorage(MinerStorage):
             cursor.executemany("REPLACE INTO DataEntity VALUES (%s,%s,%s,%s,%s,%s,%s)", values)
 
             # Commit the insert.
-            self.connection.commit()
+            connection.commit()
 
     def store_hf_dataset_info(self, hf_metadatas: List[HuggingFaceMetadata]):
-        with contextlib.closing(self._get_cursor()) as cursor:
+        with contextlib.closing(self._create_connection()) as connection:
+            cursor = connection.cursor()
             values = [
                 (
                     hf_metadata.repo_name,
@@ -207,11 +197,12 @@ class MySQLMinerStorage(MinerStorage):
             cursor.executemany(
                 "REPLACE INTO HFMetaData (uri, source, updatedAt, encodingKey) VALUES (%s,%s,%s,%s)", values)
 
-            self.connection.commit()
+            connection.commit()
 
     def get_earliest_data_datetime(self, source):
         query = "SELECT MIN(datetime) as earliest_date FROM DataEntity WHERE source = %s"
-        with contextlib.closing(self._get_cursor()) as cursor:
+        with contextlib.closing(self._create_connection()) as connection:
+            cursor = connection.cursor()
             cursor.execute(query, (source,))
             result = cursor.fetchone()
             return result['earliest_date'] if result and result['earliest_date'] else None
@@ -228,7 +219,8 @@ class MySQLMinerStorage(MinerStorage):
             ) AS subquery;
         """
         try:
-            with contextlib.closing(self._get_cursor()) as cursor:
+            with contextlib.closing(self._create_connection()) as connection:
+                cursor = connection.cursor()
                 cursor.execute(sql_query, (f"%_{unique_id}",))
                 result = cursor.fetchone()
 
@@ -261,7 +253,8 @@ class MySQLMinerStorage(MinerStorage):
             LIMIT 2;
         """
 
-        with contextlib.closing(self._get_cursor()) as cursor:
+        with contextlib.closing(self._create_connection()) as connection:
+            cursor = connection.cursor()
             cursor.execute(sql_query, (f"%_{unique_id}",))
             hf_metadatas = []
 
@@ -287,7 +280,8 @@ class MySQLMinerStorage(MinerStorage):
             else data_entity_bucket_id.label.value
         )
 
-        with contextlib.closing(self._get_cursor()) as cursor:
+        with contextlib.closing(self._create_connection()) as connection:
+            cursor = connection.cursor()
             cursor.execute(
                 """SELECT * FROM DataEntity 
                         WHERE timeBucketId = %s AND source = %s AND label = %s""",
@@ -355,7 +349,9 @@ class MySQLMinerStorage(MinerStorage):
                     )
                     return
 
-            with contextlib.closing(self._get_cursor()) as cursor:
+            with contextlib.closing(self._create_connection()) as connection:
+                cursor = connection.cursor()
+
                 oldest_time_bucket_id = TimeBucket.from_datetime(
                     dt.datetime.now()
                     - dt.timedelta(constants.DATA_ENTITY_BUCKET_AGE_LIMIT_DAYS)
@@ -438,8 +434,8 @@ class MySQLMinerStorage(MinerStorage):
             label = "NULL" if (bucket_id.label is None) else bucket_id.label.value
             time_bucket_ids_and_labels.append(label)
 
-        with contextlib.closing(self._get_cursor()) as cursor:
-            
+        with contextlib.closing(self._create_connection()) as connection:
+            cursor = connection.cursor()
             conditions = ["(timeBucketId = %s AND label = %s)"] * len(data_entity_bucket_ids)
             query = (
                 "SELECT timeBucketId, source, label, content, contentSizeBytes FROM DataEntity "
@@ -492,8 +488,8 @@ class MySQLMinerStorage(MinerStorage):
 
         bt.logging.debug(f"Database full. Clearing {content_bytes_to_clear} bytes.")
 
-        with contextlib.closing(self._get_cursor()) as cursor:
-            
+        with contextlib.closing(self._create_connection()) as connection:
+            cursor = connection.cursor()
 
             # TODO Investigate way to select last X bytes worth of entries in a single query.
             # Get the contentSizeBytes of each row by timestamp desc.
@@ -521,13 +517,13 @@ class MySQLMinerStorage(MinerStorage):
                 cursor.execute(sql)
             
             if len(sqls) > 0:
-                self.connection.commit()
+                connection.commit()
 
     def list_data_entity_buckets(self) -> List[DataEntityBucket]:
         """Lists all DataEntityBuckets for all the DataEntities that this MinerStorage is currently serving."""
 
-        with contextlib.closing(self._get_cursor()) as cursor:
-            
+        with contextlib.closing(self._create_connection()) as connection:
+            cursor = connection.cursor()
             oldest_time_bucket_id = TimeBucket.from_datetime(
                 dt.datetime.now()
                 - dt.timedelta(constants.DATA_ENTITY_BUCKET_AGE_LIMIT_DAYS)

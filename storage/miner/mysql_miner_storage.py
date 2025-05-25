@@ -142,29 +142,29 @@ class MySQLMinerStorage(MinerStorage):
 
         with contextlib.closing(self._get_cursor()) as cursor:
             # Ensure only one thread is clearing space when necessary.
-            with self.clearing_space_lock:
+            # with self.clearing_space_lock:
                 # If we would exceed our maximum configured stored content size then clear space.
                 
-                cursor.execute("SELECT SUM(contentSizeBytes) FROM DataEntity")
+                # cursor.execute("SELECT SUM(contentSizeBytes) FROM DataEntity")
 
-                # If there are no rows we convert the None result to 0
-                result = cursor.fetchone()
-                current_content_size = result[0] if result[0] else 0
+                # # If there are no rows we convert the None result to 0
+                # result = cursor.fetchone()
+                # current_content_size = result[0] if result[0] else 0
 
-                if (
-                    current_content_size + added_content_size
-                    > self.database_max_content_size_bytes
-                ):
-                    content_bytes_to_clear = (
-                        self.database_max_content_size_bytes // 10
-                        if self.database_max_content_size_bytes // 10
-                        > added_content_size
-                        else added_content_size
-                    )
-                    print(f"database_max_content_size_bytes: {self.database_max_content_size_bytes}")
-                    print(f"added_content_size: {added_content_size}")
-                    print(f"content_bytes_to_clear: {content_bytes_to_clear}")
-                    self.clear_content_from_oldest(content_bytes_to_clear)
+                # if (
+                #     current_content_size + added_content_size
+                #     > self.database_max_content_size_bytes
+                # ):
+                #     content_bytes_to_clear = (
+                #         self.database_max_content_size_bytes // 10
+                #         if self.database_max_content_size_bytes // 10
+                #         > added_content_size
+                #         else added_content_size
+                #     )
+                #     print(f"database_max_content_size_bytes: {self.database_max_content_size_bytes}")
+                #     print(f"added_content_size: {added_content_size}")
+                #     print(f"content_bytes_to_clear: {content_bytes_to_clear}")
+                #     self.clear_content_from_oldest(content_bytes_to_clear)
 
             # Parse every DataEntity into an list of value lists for inserting.
             values = []

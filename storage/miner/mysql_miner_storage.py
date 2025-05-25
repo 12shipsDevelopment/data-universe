@@ -131,9 +131,9 @@ class MySQLMinerStorage(MinerStorage):
 
         with contextlib.closing(self._create_connection()) as connection:
             # Ensure only one thread is clearing space when necessary.
-            with self.clearing_space_lock:
+            # with self.clearing_space_lock:
                 # If we would exceed our maximum configured stored content size then clear space.
-                # cursor = connection.cursor()
+            cursor = connection.cursor()
                 # cursor.execute("SELECT SUM(contentSizeBytes) FROM DataEntity")
 
                 # # If there are no rows we convert the None result to 0

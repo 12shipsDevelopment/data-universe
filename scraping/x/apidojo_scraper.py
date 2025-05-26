@@ -356,7 +356,7 @@ class ApiDojoTwitterScraper(Scraper):
                 cashtags = []
                 
                 # Compile regex patterns once for better performance
-                hashtag_pattern = re.compile(r'(#)([\w\u00C0-\uFFFF]+)')  # Matches #prefix with Unicode
+                hashtag_pattern = re.compile(r'(#)([\w\u0600-\u06FF\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF\u200C]+)')  # Matches #prefix with Unicode
                 cashtag_pattern = re.compile(r'(\$)([A-Za-z]{1,5}\b)')      # Matches $prefix with 1-5 letters
                 
                 # Find all hashtag matches

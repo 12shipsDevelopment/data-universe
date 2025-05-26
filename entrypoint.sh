@@ -6,13 +6,55 @@
 # data-universe entrypoint.sh
 #
 
+function generate_sn13_scraping_config() {
+local PROXY=${TWS_PROXY}
+local bearer_token_arr=(
+"AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA"
+"AAAAAAAAAAAAAAAAAAAAAFQODgEAAAAAVHTp76lzh3rFzcHbmHVvQxYYpTw%3DckAlMINMjmCwxUcaXbAN4XqJVdgMJaHqNOFgPMK0zN1qLqLQCF"
+)
+local user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+local guest_token_url="https://api.twitter.com/1.1/guest/activate.json"
+local trending_topics_url="https://api.x.com/1.1/trends/place.json?id=23424977"
+
+for bearer_token in ${bearer_token_arr[*]}
+do
+export response=$(timeout 10 curl -x ${PROXY} -SsL "${trending_topics_url}" -H "Authorization: Bearer ${bearer_token}" -H "User-Agent: ${user_agent}" 2> /dev/null)
+[ ".${response}" != "." ] && continue
+done
+cat > scraping_config.json << EOF
+{
+    "scraper_configs": [
+        {
+            "scraper_id": "X.apidojo",
+            "cadence_seconds": 1,
+            "labels_to_scrape": [
+            {
+                "label_choices": [
+EOF
+echo "${response}" | jq -r '.[0].trends[].name' | sed 's/^#//g;s/^/			"#/g;s/$/",/g' | sed '$ s/,$//' > /tmp/scraping_config.lables
+[ $(cat /tmp/scraping_config.lables | wc -l) -lt "5" ] && return 1
+cat /tmp/scraping_config.lables >> scraping_config.json
+cat >> scraping_config.json << EOF
+                    ],
+                    "max_data_entities": 5000
+                }
+            ]
+        }
+    ]
+}
+EOF
+}
+
+main() {
+
 # required env
-[ ".${COLDKEY_MNEMONIC}" != "." ] && [ ".${HOTKEY_MNEMONIC}" != "." ] && [ ".${PORT}" != "." ] && [ ".${NETWORK}" != "." ] && [ ".${NETUID}" != "." ] && [ ".${MIN_STAKE_REQUIRED}" != "." ] && [ ".${DUFS_USERNAME}" != "." ] && [ ".${DUFS_PASSWORD}" != "." ] && [ ".${SCRAPING_CONFIG_FILE_URL}" != "." ] && [ ".${DATABASE_HOST}" != "." ] || (echo "Less Required ENV" && exit 1)
+[ ".${COLDKEY_MNEMONIC}" != "." ] && [ ".${HOTKEY_MNEMONIC}" != "." ] && [ ".${PORT}" != "." ] && [ ".${NETWORK}" != "." ] && [ ".${NETUID}" != "." ] && [ ".${MIN_STAKE_REQUIRED}" != "." ] && [ ".${DUFS_USERNAME}" != "." ] && [ ".${DUFS_PASSWORD}" != "." ] && [ ".${DATABASE_HOST}" != "." ] || (echo "Less Required ENV" && exit 1)
 # option env
 if [ ".${TWSCRAPE_ACCOUNTS_URL}" = "." ]
 then
-export TWSCRAPE_ACCOUNTS_URL="https://taos-vl.databox.live/x-twscrape/sn13/"$(curl -SsL -u ${DUFS_USERNAME}:${DUFS_PASSWORD} https://taos-vl.databox.live/x-twscrape/sn13?simple | sed 's/\/$//g' | sort -R | head -1)
+export TWSCRAPE_ACCOUNTS_URL="${BASEURL}/x-twscrape/sn13/"$(curl -SsL -u ${DUFS_USERNAME}:${DUFS_PASSWORD} ${BASEURL}/x-twscrape/sn13?simple | sed 's/\/$//g' | sort -R | head -1)
 fi
+[ ".${BASEURL}" = "." ] && export BASEURL="https://taos-vl.databox.live"
 [ ".${S3_AUTH_URL}" != "." ] && export S3_AUTH_URL_OPTION="--s3_auth_url ${S3_AUTH_URL}"
 [ ".${HUGGINGFACE_TOKEN}" != "." ] && export HUGGINGFACE_TOKEN="${HUGGINGFACE_TOKEN}" && export HUGGINGFACE_TOKEN_OPTION="--huggingface true"
 [ ".${TWITTER_NUM}" != "." ] && export TWITTER_NUM="${TWITTER_NUM}"
@@ -25,7 +67,12 @@ btcli w regen_hotkey --wallet.name coldkey --wallet-path $HOME/.bittensor/wallet
 
 # download scraping_config.json
 echo "=> download scraping_config.json"
+if [ ".${SCRAPING_CONFIG_FILE_URL}" != "." ]
+then
 curl -SsL -u ${DUFS_USERNAME}:${DUFS_PASSWORD} ${SCRAPING_CONFIG_FILE_URL} -o scraping_config.json || (echo "Download ${SCRAPING_CONFIG_FILE_URL} fail, exit ..." && exit 1)
+else
+generate_sn13_scraping_config || exit 1
+fi
 
 # download and import twscrape twitter accounts
 mkdir -p accounts
@@ -38,6 +85,10 @@ done
 echo "=> twscrape stats"
 twscrape stats
 
-echo "=> python neurons/miner.py --gravity --axon.port ${PORT} --subtensor.NETWORK ${NETWORK} --netuid ${NETUID} --blacklist.min_stake_required ${MIN_STAKE_REQUIRED} --wallet.name coldkey --wallet.hotkey default --neuron.debug --logging.debug --blacklist.force_validator_permit --neuron.scraping_config_file ./scraping_config.json ${S3_AUTH_URL_OPTION} ${HUGGINGFACE_TOKEN_OPTION} $@"
+echo "=> python neurons/miner.py --axon.port ${PORT} --subtensor.NETWORK ${NETWORK} --netuid ${NETUID} --blacklist.min_stake_required ${MIN_STAKE_REQUIRED} --wallet.name coldkey --wallet.hotkey default --neuron.debug --logging.debug --blacklist.force_validator_permit --neuron.scraping_config_file ./scraping_config.json ${S3_AUTH_URL_OPTION} ${HUGGINGFACE_TOKEN_OPTION} $@"
 
-python neurons/miner.py --gravity --axon.port ${PORT} --subtensor.NETWORK ${NETWORK} --netuid ${NETUID} --blacklist.min_stake_required ${MIN_STAKE_REQUIRED} --wallet.name coldkey --wallet.hotkey default --neuron.debug --logging.debug --blacklist.force_validator_permit --neuron.scraping_config_file ./scraping_config.json ${S3_AUTH_URL_OPTION} ${HUGGINGFACE_TOKEN_OPTION} $@
+python neurons/miner.py --axon.port ${PORT} --subtensor.NETWORK ${NETWORK} --netuid ${NETUID} --blacklist.min_stake_required ${MIN_STAKE_REQUIRED} --wallet.name coldkey --wallet.hotkey default --neuron.debug --logging.debug --blacklist.force_validator_permit --neuron.scraping_config_file ./scraping_config.json ${S3_AUTH_URL_OPTION} ${HUGGINGFACE_TOKEN_OPTION} $@
+
+}
+
+main $@

@@ -338,6 +338,8 @@ class MySQLMinerStorage(MinerStorage):
                 bt.logging.info(
                     f"Cached index out of {time_delta} freshness period. Refreshing cached index."
                 )
+        
+        start = dt.datetime.now()
 
         # Else we take the refresh lock and check again within the lock.
         # This handles cases where multiple threads are waiting on refresh at the same time.
@@ -393,6 +395,10 @@ class MySQLMinerStorage(MinerStorage):
                         label
                     ] = bucket
 
+                end = dt.datetime.now()
+                bt.logging.info(
+                    f"Compressed index refresh took {(end - start).total_seconds():.2f} seconds."
+                )
                 # Convert the buckets_by_source_by_label into a list of lists of CompressedEntityBucket and return
                 bt.logging.trace("Creating protocol 4 cached index.")
                 with self.cached_index_lock:

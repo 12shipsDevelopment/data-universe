@@ -287,6 +287,7 @@ class ApiDojoTwitterScraper(Scraper):
         bt.logging.success(f"Performing Twitter scrape for search terms: {query}.")
         start_time = dt.datetime.now()
 
+
         # Run the Actor and retrieve the scraped data.
         # dataset: List[dict] = None
         try:
@@ -298,12 +299,12 @@ class ApiDojoTwitterScraper(Scraper):
             return []
 
         # Return the parsed results, ignoring data that can't be parsed.
-        x_contents, is_retweets = self._best_effort_parse_tweets(tweets)
+        x_contents, is_retweets, skip_count = self._best_effort_parse_tweets(tweets)
 
         end_time = dt.datetime.now()
         time_diff = end_time - start_time
         bt.logging.success(
-            f"Completed scrape for {query}. Scraped {len(x_contents)} items. elapsed time: {time_diff.total_seconds():.2f} seconds."
+            f"Completed scrape for {query}. Scraped {len(x_contents)} items, skip {skip_count} old age tweets. elapsed time: {time_diff.total_seconds():.2f} seconds."
         )
 
         data_entities = []
@@ -312,17 +313,27 @@ class ApiDojoTwitterScraper(Scraper):
 
         return data_entities
 
-    def _best_effort_parse_tweets(self, tweets: list[Tweet]) -> Tuple[List[XContent], List[bool]]:
+    def _best_effort_parse_tweets(self, tweets: list[Tweet]) -> Tuple[List[XContent], List[bool], int]:
         """Performs a best effort parsing of Apify dataset into List[XContent]
 
         Any errors are logged and ignored."""
+        
+        skip_count = 0
         if len(tweets) == 0:  # Todo remove first statement if it's not necessary
-            return [], []
+            return [], [], skip_count
 
         results: List[XContent] = []
         is_retweets: List[bool] = []
+
+        age_limit = dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=constants.DATA_ENTITY_BUCKET_AGE_LIMIT_DAYS)
         for tweet in tweets:
             try:
+                now = dt.datetime.now(dt.timezone.utc)
+                if tweet.date < age_limit:
+                    skip_count+=1
+                    # Skip tweets that are older than the data entity bucket age limit.
+                    continue
+
                 # Check that we have the required fields.
                 # if (
                 #         ("text" not in data)
@@ -402,7 +413,7 @@ class ApiDojoTwitterScraper(Scraper):
                 bt.logging.warning(
                     f"Failed to decode XContent from Apify response: {traceback.format_exc()}."
                 )
-        return results, is_retweets
+        return results, is_retweets, skip_count
     
     def _best_effort_parse_dataset(self, dataset: List[dict]) -> Tuple[List[XContent], List[bool]]:
         """Performs a best effort parsing of Apify dataset into List[XContent]

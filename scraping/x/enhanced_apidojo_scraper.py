@@ -47,7 +47,7 @@ class EnhancedApiDojoTwitterScraper(ApiDojoTwitterScraper):
 
         return standard_contents, is_retweets
     
-    def _best_effort_parse_tweets(self, dataset: list[Tweet]) -> Tuple[List[XContent], List[bool]]:
+    def _best_effort_parse_tweets(self, dataset: list[Tweet]) -> Tuple[List[XContent], List[bool], int]:
         """
         Enhanced version that parses the full dataset into both standard XContent (for backward compatibility)
         and EnhancedXContent objects.
@@ -56,12 +56,12 @@ class EnhancedApiDojoTwitterScraper(ApiDojoTwitterScraper):
             Tuple[List[XContent], List[bool]]: (standard_parsed_content, is_retweets)
         """
         # Call the parent class method to get standard parsed content
-        standard_contents, is_retweets = super()._best_effort_parse_tweets(dataset)
+        standard_contents, is_retweets, skip_count = super()._best_effort_parse_tweets(dataset)
 
         # Also parse into enhanced content and store it in a class attribute
         self.enhanced_contents = self._parse_enhanced_tweets_content(dataset)
 
-        return standard_contents, is_retweets
+        return standard_contents, is_retweets, skip_count
 
 
     def _parse_enhanced_tweets_content(self, dataset: list[Tweet]) -> List[EnhancedXContent]:
@@ -78,10 +78,15 @@ class EnhancedApiDojoTwitterScraper(ApiDojoTwitterScraper):
         #     return []
         if len(dataset) == 0:
             return []
+        
+        age_limit = dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=constants.DATA_ENTITY_BUCKET_AGE_LIMIT_DAYS)
 
         results: List[EnhancedXContent] = []
         for data in dataset:
             try:
+                if data.date < age_limit:
+                    # Skip tweets that are older than the data entity bucket age limit.
+                    continue
                 # Debug the structure of the data
                 # if 'media' in data:
                 #     bt.logging.debug(f"Media structure: {type(data['media'])}")

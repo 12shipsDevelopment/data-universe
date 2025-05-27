@@ -14,6 +14,7 @@ from common.data import DataLabel, DataSource, StrictBaseModel, TimeBucket
 from scraping.provider import ScraperProvider
 from scraping.scraper import ScrapeConfig, ScraperId
 from storage.miner.miner_storage import MinerStorage
+from twscrape import AccountsPool, API
 
 
 class LabelScrapingConfig(StrictBaseModel):
@@ -73,7 +74,6 @@ def _choose_scrape_configs(
             scraper_id in config.scraper_configs
     ), f"Scraper Id {scraper_id} not in config"
 
-    scraper_base=os.environ.get("SCRAPER_BASE", "http://localhost:8080/")
     # Ensure now has timezone information
     if now.tzinfo is None:
         now = now.replace(tzinfo=dt.timezone.utc)
@@ -106,7 +106,6 @@ def _choose_scrape_configs(
 
             results.append(
                 ScrapeConfig(
-                    scraper_base=scraper_base,
                     entity_limit=label_config.max_data_entities,
                     date_range=date_range,
                     labels=labels_to_scrape,
@@ -140,7 +139,6 @@ def _choose_scrape_configs(
 
             results.append(
                 ScrapeConfig(
-                    scraper_base=scraper_base,
                     entity_limit=label_config.max_data_entities,
                     date_range=date_range,
                     labels=labels_to_scrape,
@@ -225,6 +223,9 @@ class ScraperCoordinator:
             )
             workers.append(worker)
 
+        trends_task = asyncio.create_task(self.trends_task())
+        workers.append(trends_task)
+
         while self.is_running:
             now = dt.datetime.utcnow()
             scraper_ids_to_scrape_now = self.tracker.get_scraper_ids_ready_to_scrape(
@@ -277,3 +278,45 @@ class ScraperCoordinator:
                 bt.logging.info(f"{name} {qs} {threading.current_thread().name} elapsed: scrape:{(scrape_time - start_time).total_seconds():.2f} db:{time_diff.total_seconds():.2f} s.")
             except Exception as e:
                 bt.logging.error("Worker " + name + ": " + traceback.format_exc())
+
+
+    # Add hourly task
+    async def trends_task(self):
+        """Runs hourly tasks, such as scraping trends."""
+        bt.logging.info("Starting trends tasks...")
+        await asyncio.sleep(5)
+        while self.is_running:
+            now = dt.datetime.utcnow()
+            bt.logging.info("Running trends tasks...")
+
+            # Get the trends labels
+            api = API(AccountsPool())
+            
+            literal_values = ["trending", "news", "sport", "entertainment"]
+            trends_labels = []
+            for literal_value in literal_values:
+                trends = api.trends(literal_value)
+                async for trend in trends: 
+                    trends_labels.append(trend.name)
+            # Remove duplicates
+            trends_labels = list(set(trends_labels))
+            bt.logging.info(f"Trends labels: {trends_labels}")
+
+            scraper = self.provider.get(ScraperId.X_APIDOJO)
+            current_bucket = TimeBucket.from_datetime(now-dt.timedelta(minutes=60))
+            date_range = TimeBucket.to_date_range(TimeBucket(id=current_bucket.id))
+            for label in trends_labels:
+                config = ScrapeConfig(
+                    entity_limit=self.config.scraper_configs[ScraperId.X_APIDOJO].labels_to_scrape[0].max_data_entities,  
+                    date_range=date_range,
+                    labels=None  
+                )
+                bt.logging.info(f"Adding trends label scrape task for {ScraperId.X_APIDOJO}: {config}.")
+                self.queue.put_nowait(functools.partial(scraper.scrape, config))
+                
+            self.tracker.on_scrape_scheduled(ScraperId.X_APIDOJO, now)
+            # Calculate time until next hour
+            next_hour = (now.replace(minute=1, second=0, microsecond=0) + 
+                        dt.timedelta(hours=1))
+            wait_seconds = (next_hour - now).total_seconds()
+            await asyncio.sleep(wait_seconds)

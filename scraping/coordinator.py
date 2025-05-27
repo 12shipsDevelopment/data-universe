@@ -171,6 +171,7 @@ class ScraperCoordinator:
                 last_scrape_time = self.last_scrape_time_per_scraper_id.get(
                     scraper_id, None
                 )
+                bt.logging.info(f"{now} - {last_scrape_time} >= {cadence}")
                 if last_scrape_time is None or now - last_scrape_time >= cadence:
                     results.append(scraper_id)
             return results

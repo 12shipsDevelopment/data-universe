@@ -280,43 +280,46 @@ class ScraperCoordinator:
                 bt.logging.error("Worker " + name + ": " + traceback.format_exc())
 
 
-    # Add hourly task
+     # Add hourly task
     async def trends_task(self):
         """Runs hourly tasks, such as scraping trends."""
         bt.logging.info("Starting trends tasks...")
         await asyncio.sleep(5)
         while self.is_running:
-            now = dt.datetime.utcnow()
-            bt.logging.info("Running trends tasks...")
+            try:
+                now = dt.datetime.now()
+                bt.logging.info("Running trends tasks...")
 
-            # Get the trends labels
-            api = API(AccountsPool())
-            
-            literal_values = ["trending", "news", "sport", "entertainment"]
-            trends_labels = []
-            for literal_value in literal_values:
-                trends = api.trends(literal_value)
-                async for trend in trends: 
-                    trends_labels.append(trend.name)
-            # Remove duplicates
-            trends_labels = list(set(trends_labels))
-            bt.logging.info(f"Trends labels: {trends_labels}")
+                # Get the trends labels
+                api = API(AccountsPool())
 
-            scraper = self.provider.get(ScraperId.X_APIDOJO)
-            current_bucket = TimeBucket.from_datetime(now-dt.timedelta(minutes=60))
-            date_range = TimeBucket.to_date_range(TimeBucket(id=current_bucket.id))
-            for label in trends_labels:
-                config = ScrapeConfig(
-                    entity_limit=self.config.scraper_configs[ScraperId.X_APIDOJO].labels_to_scrape[0].max_data_entities,  
-                    date_range=date_range,
-                    labels=[label]
-                )
-                bt.logging.info(f"Adding trends label scrape task for {ScraperId.X_APIDOJO}: {config}.")
-                self.queue.put_nowait(functools.partial(scraper.scrape, config))
+                literal_values = ["trending", "news", "sport", "entertainment"]
+                trends_labels = []
+                for literal_value in literal_values:
+                    trends = api.trends(literal_value)
+                    async for trend in trends:
+                        trends_labels.append(trend.name)
+                # Remove duplicates
+                trends_labels = list(set(trends_labels))
+                bt.logging.info(f"Trends labels: {trends_labels}")
 
-            self.tracker.on_scrape_scheduled(ScraperId.X_APIDOJO, now)
-            # Calculate time until next hour
-            next_hour = (now.replace(minute=1, second=0, microsecond=0) + 
-                        dt.timedelta(hours=1))
-            wait_seconds = (next_hour - now).total_seconds()
-            await asyncio.sleep(wait_seconds)
+                scraper = self.provider.get(ScraperId.X_APIDOJO)
+                current_bucket = TimeBucket.from_datetime(now-dt.timedelta(minutes=60))
+                date_range = TimeBucket.to_date_range(TimeBucket(id=current_bucket.id))
+                for label in trends_labels:
+                    config = ScrapeConfig(
+                        entity_limit=self.config.scraper_configs[ScraperId.X_APIDOJO].labels_to_scrape[0].max_data_entities,
+                        date_range=date_range,
+                        labels=[DataLabel(value = label)]
+                    )
+                    bt.logging.info(f"Adding trends label scrape task for {ScraperId.X_APIDOJO}: {config}.")
+                    self.queue.put_nowait(functools.partial(scraper.scrape, config))
+
+                self.tracker.on_scrape_scheduled(ScraperId.X_APIDOJO, now)
+                # Calculate time until next hour
+                next_hour = (now.replace(minute=1, second=0, microsecond=0) +
+                            dt.timedelta(hours=1))
+                wait_seconds = (next_hour - now).total_seconds()
+                await asyncio.sleep(wait_seconds)
+            except Exception as e:
+                bt.logging.error("Trends : " + traceback.format_exc())

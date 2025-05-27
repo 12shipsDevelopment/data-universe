@@ -288,7 +288,7 @@ class ScraperCoordinator:
         await asyncio.sleep(5)
         while self.is_running:
             try:
-                now = dt.datetime.now()
+                now = dt.datetime.utcnow()
                 bt.logging.info("Running trends tasks...")
 
                 # Get the trends labels

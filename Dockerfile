@@ -30,6 +30,7 @@ ENV S3_AUTH_URL=
 ENV TWITTER_NUM=50
 ENV SCRAPING_CONFIG_FILE_URL=
 ENV TWSCRAPE_ACCOUNTS_URL=
+ENV COUNTRY=
 
 HEALTHCHECK --interval=180s --timeout=10s --start-period=600s --retries=3 CMD ./healthcheck.sh || exit 1
 

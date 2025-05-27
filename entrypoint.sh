@@ -50,10 +50,6 @@ main() {
 # required env
 [ ".${COLDKEY_MNEMONIC}" != "." ] && [ ".${HOTKEY_MNEMONIC}" != "." ] && [ ".${PORT}" != "." ] && [ ".${NETWORK}" != "." ] && [ ".${NETUID}" != "." ] && [ ".${MIN_STAKE_REQUIRED}" != "." ] && [ ".${DUFS_USERNAME}" != "." ] && [ ".${DUFS_PASSWORD}" != "." ] && [ ".${DATABASE_HOST}" != "." ] || (echo "Less Required ENV" && exit 1)
 # option env
-if [ ".${TWSCRAPE_ACCOUNTS_URL}" = "." ]
-then
-export TWSCRAPE_ACCOUNTS_URL="${BASEURL}/x-twscrape/sn13/"$(curl -SsL -u ${DUFS_USERNAME}:${DUFS_PASSWORD} ${BASEURL}/x-twscrape/sn13?simple | sed 's/\/$//g' | sort -R | head -1)
-fi
 [ ".${BASEURL}" = "." ] && export BASEURL="https://taos-vl.databox.live"
 [ ".${S3_AUTH_URL}" != "." ] && export S3_AUTH_URL_OPTION="--s3_auth_url ${S3_AUTH_URL}"
 [ ".${HUGGINGFACE_TOKEN}" != "." ] && export HUGGINGFACE_TOKEN="${HUGGINGFACE_TOKEN}" && export HUGGINGFACE_TOKEN_OPTION="--huggingface true"
@@ -75,13 +71,31 @@ generate_sn13_scraping_config || exit 1
 fi
 
 # download and import twscrape twitter accounts
+echo "=> download and import twscrape twitter accounts"
+if [ ".${TWSCRAPE_ACCOUNTS_URL}" = "." ]
+then
+
+export TWSCRAPE_ACCOUNTS_URL="${BASEURL}/x-twscrape/sn13"
 mkdir -p accounts
+curl -SsL -u ${DUFS_USERNAME}:${DUFS_PASSWORD} "${TWSCRAPE_ACCOUNTS_URL}?zip" -o accounts.zip || (echo "Download ${TWSCRAPE_ACCOUNTS_URL} fail, exit ..." && exit 1)
+unzip accounts.zip -d accounts/
+for account in $(ls accounts/*/*.txt | grep -E '.txt$' | sort -R | head -${TWITTER_NUM})
+do
+echo "=> twscrape add_accounts ${account}"
+twscrape add_accounts ${account} username:password:email:email_password:_:cookies
+done
+
+else
+
 for account in $(curl -SsL -u ${DUFS_USERNAME}:${DUFS_PASSWORD} ${TWSCRAPE_ACCOUNTS_URL}?simple 2> /dev/null | grep -E '.txt$' | sort -R | head -${TWITTER_NUM})
 do
 echo "=> twscrape add_accounts ${account}"
 curl -SsL -u ${DUFS_USERNAME}:${DUFS_PASSWORD} ${TWSCRAPE_ACCOUNTS_URL}/${account} -o accounts/${account}
 twscrape add_accounts accounts/${account} username:password:email:email_password:_:cookies
 done
+
+fi
+
 echo "=> twscrape stats"
 twscrape stats
 

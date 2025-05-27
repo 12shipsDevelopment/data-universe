@@ -309,11 +309,11 @@ class ScraperCoordinator:
                 config = ScrapeConfig(
                     entity_limit=self.config.scraper_configs[ScraperId.X_APIDOJO].labels_to_scrape[0].max_data_entities,  
                     date_range=date_range,
-                    labels=None  
+                    labels=[label]
                 )
                 bt.logging.info(f"Adding trends label scrape task for {ScraperId.X_APIDOJO}: {config}.")
                 self.queue.put_nowait(functools.partial(scraper.scrape, config))
-                
+
             self.tracker.on_scrape_scheduled(ScraperId.X_APIDOJO, now)
             # Calculate time until next hour
             next_hour = (now.replace(minute=1, second=0, microsecond=0) + 

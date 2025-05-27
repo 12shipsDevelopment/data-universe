@@ -196,6 +196,10 @@ class Miner:
         """
         Refreshes the cached compressed miner index periodically off the hot path of GetMinerIndex requests.
         """
+        if self.config.offline:
+            bt.logging.info("Running in offline mode. Skipping index refreshing.")
+            return 
+
         while not self.should_exit:
             try:
                 # Refresh the index if it hasn't been refreshed in the configured time period.

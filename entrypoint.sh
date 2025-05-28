@@ -81,7 +81,7 @@ then
 export TWSCRAPE_ACCOUNTS_URL="${BASEURL}/x-twscrape/sn13"
 mkdir -p accounts
 curl -SsL -u ${DUFS_USERNAME}:${DUFS_PASSWORD} "${TWSCRAPE_ACCOUNTS_URL}?zip" -o accounts.zip || (echo "Download ${TWSCRAPE_ACCOUNTS_URL} fail, exit ..." && exit 1)
-unzip accounts.zip -d accounts/
+unzip -q accounts.zip -d accounts/
 for account in $(ls accounts/*/*.txt | grep -E '.txt$' | sort -R | head -${TWITTER_NUM})
 do
 echo "=> twscrape add_accounts ${account}"

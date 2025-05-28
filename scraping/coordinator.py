@@ -224,8 +224,9 @@ class ScraperCoordinator:
             )
             workers.append(worker)
 
-        trends_task = asyncio.create_task(self.trends_task())
-        workers.append(trends_task)
+        if os.environ["SUPPORT_TRENDS"] != "false":
+            trends_task = asyncio.create_task(self.trends_task())
+            workers.append(trends_task)
 
         while self.is_running:
             now = dt.datetime.utcnow()

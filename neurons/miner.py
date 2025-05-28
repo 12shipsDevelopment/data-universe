@@ -166,7 +166,7 @@ class Miner:
             )
 
         # Instantiate storage.
-        self.storage = MySQLMinerStorage(host = os.environ.get("DATABASE_HOST","localhost"))
+        self.storage = MySQLMinerStorage(host = os.environ.get("DATABASE_HOST","localhost"), database=os.environ.get("DATABASE_NAME","sn13"))
 
         bt.logging.success(
             f"Successfully connected to miner storage: {self.config.neuron.database_name}."

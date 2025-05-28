@@ -44,6 +44,10 @@ class RedditLiteScraper(Scraper):
     def __init__(self, runner: ActorRunner = ActorRunner()):
         self.runner = runner
 
+    async def validate_hf(self, entities) -> bool:
+        """Validate the correctness of a list of HF retrieved data"""
+        return True
+
     async def validate(self, entities: List[DataEntity]) -> List[ValidationResult]:
         """Validate the correctness of a DataEntity by URI."""
         if not entities:

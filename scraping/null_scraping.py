@@ -18,16 +18,14 @@ class SizeAwareQueue:
         self._max_size = max_total_size_bytes
         self._lock = asyncio.Lock()
         self._size_exceeded = False
-        self._shutdown = False  # New flag for shutdown
 
     async def put(self, chunk, chunk_size):
         async with self._lock:
-            if self._shutdown or self._size_exceeded:
+            if self._size_exceeded:
                 return False
             
             if self._current_size + chunk_size > self._max_size:
                 self._size_exceeded = True
-                bt.logging.info("Queue size limit reached")
                 return False
                 
             self._queue.append(chunk)
@@ -42,16 +40,13 @@ class SizeAwareQueue:
 
     async def should_continue(self):
         async with self._lock:
-            return not (self._size_exceeded or self._shutdown)
-    
-    async def shutdown(self):
-        async with self._lock:
-            self._shutdown = True
-            bt.logging.info("Queue shutdown initiated")
+            return not self._size_exceeded
 
 def generate_current_hour_query(base_query, date_range: DateRange):
     """Generate Twitter search query for current hour only"""
+    
     date_format = "%Y-%m-%d_%H:%M:%S_UTC"
+
     return f"since:{date_range.start.astimezone(tz=dt.timezone.utc).strftime(date_format)} until:{date_range.end.astimezone(tz=dt.timezone.utc).strftime(date_format)} ({base_query})"
 
 async def fetch_tweets_for_tag(
@@ -62,6 +57,7 @@ async def fetch_tweets_for_tag(
 ):
     """Fetch tweets for a single tag in chunks"""
     scraper = ApiDojoTwitterScraper()
+
     query = generate_current_hour_query(tag, date_range)
     cursor = None
     current_chunk = []
@@ -69,165 +65,112 @@ async def fetch_tweets_for_tag(
     chunk_num = 1
     skip_total = 0
     
+    # Time range filters
+    # age_limit = dt.datetime.utcnow().replace(tzinfo=dt.timezone.utc) - dt.timedelta(days=30)
     current_hour_start = dt.datetime.utcnow().replace(tzinfo=dt.timezone.utc) - dt.timedelta(hours=1)
     start = dt.datetime.now()
-    
-    try:
-        while await output_queue.should_continue():
-            try:
-                async for new_tweets, new_cursor in scraper.api.search_with_cursor(query, 1000, cursor=cursor):
-                    if not await output_queue.should_continue():
-                        bt.logging.info(f"Stopping tag {tag} due to queue shutdown")
-                        return
-                        
-                    cursor = new_cursor
-                    x_contents, is_retweets, skip_count = scraper._best_effort_parse_tweets(new_tweets)
-                    skip_total += skip_count
-                    
-                    data_entities: list[DataEntity] = []
-                    for x_content in x_contents:
-                        data_entities.append(XContent.to_data_entity(content=x_content))
+    while await output_queue.should_continue():
+        try:
+            async for new_tweets, new_cursor in scraper.api.search_with_cursor(query, 1000, cursor=cursor):
+                cursor = new_cursor
+                x_contents, is_retweets, skip_count = scraper._best_effort_parse_tweets(new_tweets)
+                skip_total += skip_count
+                
+                data_entities :list[DataEntity] = []
+                for x_content in x_contents:
+                    data_entities.append(XContent.to_data_entity(content=x_content))
 
-                    for data in data_entities:
-                        if data.datetime >= current_hour_start and not data.label:
+                for data in data_entities:
+                    # Only count size for tweets in current hour with NULL first_tag
+                    if data.datetime >= current_hour_start:
+                        if not data.label:  # NULL tag
                             current_chunk_size += data.content_size_bytes
-                        current_chunk.append(data)
-                        
-                        if current_chunk_size >= chunk_size_bytes:
-                            end = dt.datetime.now()
-                            time_diff = end - start
-                            bt.logging.success(f"Tag {tag}: Scraped {len(current_chunk)} tweets in chunk {chunk_num}, {current_chunk_size} bytes null tag tweets, skipped {skip_total} old tweets, elapsed {time_diff.total_seconds():.2f}s")
-                            if not await output_queue.put(current_chunk, current_chunk_size):
-                                return
-                            current_chunk = []
-                            current_chunk_size = 0
-                            chunk_num += 1
-                            start = end
-                            skip_total = 0
-
-                    if not cursor and current_chunk:
+                    
+                    current_chunk.append(data)
+                    
+                    # Submit chunk when size threshold reached
+                    if current_chunk_size >= chunk_size_bytes:
                         end = dt.datetime.now()
-                        time_diff = end - start
-                        bt.logging.success(f"Tag {tag}: Final chunk with {len(current_chunk)} tweets, {current_chunk_size} bytes null tag tweets, elapsed {time_diff.total_seconds():.2f}s")
-                        await output_queue.put(current_chunk, current_chunk_size)
-                        return
+                        time_diff = end -start
+                        bt.logging.success(f"use tag {tag} scraped {len(current_chunk)} tweets in {chunk_num} chunk, with {current_chunk_size} bytes null tag tweets, skip {skip_total} old age tweets, elapsed {time_diff.total_seconds():.2f}s")
+                        if not await output_queue.put(current_chunk, current_chunk_size):
+                            return
+                        current_chunk = []
+                        current_chunk_size = 0
+                        chunk_num += 1
+                        start = end
+                        skip_total = 0
 
-            except Exception as e:
-                bt.logging.error(f"Error processing tag {tag}: {str(e)}")
-                if current_chunk:
+                # Submit remaining tweets when no more data
+                if not cursor and current_chunk:
                     end = dt.datetime.now()
-                    time_diff = end - start
-                    bt.logging.info(f"Tag {tag}: Error chunk with {len(current_chunk)} tweets, {current_chunk_size} bytes null tag tweets, elapsed {time_diff.total_seconds():.2f}s")
+                    time_diff = end -start
+                    bt.logging.success(f"use tag {tag} scraped {len(current_chunk)} tweets in {chunk_num} chunk (last), with {current_chunk_size} bytes null tag tweets, elapsed {time_diff.total_seconds():.2f}s")
                     await output_queue.put(current_chunk, current_chunk_size)
-                return
-    except asyncio.CancelledError:
-        bt.logging.info(f"Tag {tag} task cancelled")
-        raise
+                    return
 
-async def process_tweets_consumer(output_queue: SizeAwareQueue, storage: MinerStorage):
+        except Exception as e:
+            bt.logging.error(f"Error processing tag {tag}: {str(e)}")
+            if current_chunk:  # Submit collected data on error
+                end = dt.datetime.now()
+                time_diff = end -start
+                bt.logging.success(f"use tag {tag} scraped {len(current_chunk)} in {chunk_num} chunk (last), with {current_chunk_size} bytes null tag tweets, elapsed {time_diff.total_seconds():.2f}s")
+                await output_queue.put(current_chunk, current_chunk_size)
+            return
+
+async def process_tweets_consumer(output_queue: SizeAwareQueue, storage: MinerStorage, stop_event: asyncio.Event):
     """Consumer coroutine to process fetched tweets"""
-    processed_count = 0
-    start_time = dt.datetime.now()
-    
-    try:
-        while True:
-            chunk = await output_queue.get()
-            if chunk is None:
-                if not await output_queue.should_continue():
-                    bt.logging.info("Consumer stopping - queue shutdown requested")
-                    break
-                await asyncio.sleep(0.1)
-                continue
-            
-            bt.logging.success(f"Processing chunk with {len(chunk)} DataEntities (total processed: {processed_count})")
-            chunk_start = dt.datetime.now()
-            try:
-                storage.store_data_entities(chunk)
-                processed_count += len(chunk)
-                chunk_end = dt.datetime.now()
-                time_diff = chunk_end - chunk_start
-                bt.logging.success(f"Stored {len(chunk)} DataEntities in {time_diff.total_seconds():.2f}s (total: {processed_count})")
-            except Exception as e:
-                bt.logging.error(f"Storage error: {str(e)}")
-    except asyncio.CancelledError:
-        total_time = (dt.datetime.now() - start_time).total_seconds()
-        bt.logging.info(f"Consumer task cancelled. Processed {processed_count} items in {total_time:.2f}s")
-        raise
-    finally:
-        total_time = (dt.datetime.now() - start_time).total_seconds()
-        bt.logging.info(f"Consumer completed. Processed {processed_count} items in {total_time:.2f}s")
+    while not stop_event.is_set():
+        chunk = await output_queue.get()
+        if chunk is None:
+            await asyncio.sleep(1)
+            continue
+        
+        
+        # Process tweet chunk (storage/analysis)
+        bt.logging.success(f"Processing chunk with {len(chunk)} DataEntities")
+        start = dt.datetime.now()
+        try:
+            storage.store_data_entities(chunk)
+            end = dt.datetime.now()
+            time_diff = end -start
+            bt.logging.success(f"store {len(chunk)} DataEntities elapsed {time_diff.total_seconds():.2f}s ")
+        # await save_to_db(chunk)
+        except Exception as e:
+            bt.logging.error("null worker error: " + str(e))
 
 async def process_tags_parallel(
     tags: list,
-    date_range: DateRange,
+    date_range :DateRange,
     storage: MinerStorage,
     max_total_size_bytes: int = 128 * 1024 * 1024,
     parallel_tasks: int = 5,
-    chunk_size_bytes: int = 1 * 1024 * 1024,
-    timeout_minutes: int = 30
+    chunk_size_bytes: int = 1 *1024 *1024,
 ):
     """Process multiple tags in parallel with size control"""
     output_queue = SizeAwareQueue(max_total_size_bytes + 2 * chunk_size_bytes)
+    stop_event = asyncio.Event()  
+    # Start consumer
+    consumer_task = asyncio.create_task(process_tweets_consumer(output_queue, storage, stop_event))
     
-    try:
-        # Start consumer
-        consumer_task = asyncio.create_task(process_tweets_consumer(output_queue, storage))
-        
-        # Start producers with timeout
-        producers = []
-        semaphore = asyncio.Semaphore(parallel_tasks)
-        
-        async def limited_worker(tag):
-            async with semaphore:
-                try:
-                    await asyncio.wait_for(
-                        fetch_tweets_for_tag(tag, date_range, output_queue, chunk_size_bytes),
-                        timeout=timeout_minutes * 60
-                    )
-                except asyncio.TimeoutError:
-                    bt.logging.warning(f"Tag {tag} processing timed out after {timeout_minutes} minutes")
-                except Exception as e:
-                    bt.logging.error(f"Error in tag {tag} worker: {str(e)}")
-        
-        # Create producer tasks
-        for tag in tags:
-            if not await output_queue.should_continue():
-                bt.logging.info("Stopping early - queue limit reached")
-                break
-            producers.append(asyncio.create_task(limited_worker(tag)))
-        
-        # Wait for producers to complete or timeout
-        try:
-            await asyncio.wait_for(asyncio.gather(*producers), timeout=timeout_minutes * 60)
-        except asyncio.TimeoutError:
-            bt.logging.warning(f"Overall processing timed out after {timeout_minutes} minutes")
-        
-        # Shutdown sequence
-        bt.logging.info("Initiating shutdown sequence...")
-        await output_queue.shutdown()
-        
-        # Give consumer time to finish processing
-        try:
-            await asyncio.wait_for(consumer_task, timeout=5)
-        except asyncio.TimeoutError:
-            bt.logging.warning("Consumer did not finish in time, cancelling...")
-            consumer_task.cancel()
-            try:
-                await consumer_task
-            except asyncio.CancelledError:
-                pass
-        
-        return output_queue._current_size
-        
-    except Exception as e:
-        bt.logging.error(f"Error in process_tags_parallel: {str(e)}")
-        raise
-    finally:
-        # Clean up any remaining tasks
-        for task in producers:
-            if not task.done():
-                task.cancel()
-                try:
-                    await task
-                except asyncio.CancelledError:
-                    pass
+    # Start producers
+    producers = []
+    semaphore = asyncio.Semaphore(parallel_tasks)
+    
+    async def limited_worker(tag):
+        async with semaphore:
+            await fetch_tweets_for_tag(tag, date_range, output_queue, chunk_size_bytes)
+    
+    for tag in tags:
+        if not await output_queue.should_continue():
+            break
+        producers.append(asyncio.create_task(limited_worker(tag)))
+    
+    # Wait for producers to complete
+    await asyncio.gather(*producers, return_exceptions=True)
+    
+    # Notify consumer to finish
+    stop_event.set()
+    await consumer_task
+    
+    return output_queue._current_size

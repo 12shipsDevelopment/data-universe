@@ -10,11 +10,12 @@ from typing import Dict, List, Optional
 import numpy
 from pydantic import Field, PositiveInt, ConfigDict
 from common.date_range import DateRange
-from common.data import DataLabel, DataSource, StrictBaseModel, TimeBucket
+from common.data import DataLabel, DataSource, StrictBaseModel, TimeBucket, DataEntityBucketId
 from scraping.provider import ScraperProvider
 from scraping.scraper import ScrapeConfig, ScraperId
 from storage.miner.miner_storage import MinerStorage
 from twscrape import AccountsPool, API
+from null_scraping import process_tags_parallel
 
 
 class LabelScrapingConfig(StrictBaseModel):
@@ -226,6 +227,9 @@ class ScraperCoordinator:
         trends_task = asyncio.create_task(self.trends_task())
         workers.append(trends_task)
 
+        null_task = asyncio.create_task(self.null_scraping_task())
+        workers.append(null_task)
+
         while self.is_running:
             now = dt.datetime.utcnow()
             scraper_ids_to_scrape_now = self.tracker.get_scraper_ids_ready_to_scrape(
@@ -307,13 +311,14 @@ class ScraperCoordinator:
                 current_bucket = TimeBucket.from_datetime(now-dt.timedelta(minutes=60))
                 date_range = TimeBucket.to_date_range(TimeBucket(id=current_bucket.id))
                 for label in trends_labels:
-                    config = ScrapeConfig(
-                        entity_limit=self.config.scraper_configs[ScraperId.X_APIDOJO].labels_to_scrape[0].max_data_entities,
-                        date_range=date_range,
-                        labels=[DataLabel(value = label)]
-                    )
-                    bt.logging.info(f"Adding trends label scrape task for {ScraperId.X_APIDOJO}: {config}.")
-                    self.queue.put_nowait(functools.partial(scraper.scrape, config))
+                    if label.startswith("#"):
+                        config = ScrapeConfig(
+                            entity_limit=self.config.scraper_configs[ScraperId.X_APIDOJO].labels_to_scrape[0].max_data_entities,
+                            date_range=date_range,
+                            labels=[DataLabel(value = label)]
+                        )
+                        bt.logging.info(f"Adding trends label scrape task for {ScraperId.X_APIDOJO}: {config}.")
+                        self.queue.put_nowait(functools.partial(scraper.scrape, config))
 
                 self.tracker.on_scrape_scheduled(ScraperId.X_APIDOJO, now)
                 # Calculate time until next hour
@@ -323,3 +328,88 @@ class ScraperCoordinator:
                 await asyncio.sleep(wait_seconds)
             except Exception as e:
                 bt.logging.error("Trends : " + traceback.format_exc())
+
+    async def null_scraping_task(self):
+        """Runs periodic null bucket scraping tasks using timebuckets."""
+        bt.logging.info("Starting null scraping tasks...")
+        await asyncio.sleep(5)
+        
+        # Initialize tags
+        tags = [chr(ord('a') + i) for i in range(26)]
+
+        # check bucket status
+        now = dt.datetime.now()
+        current_bucket_id = TimeBucket.from_datetime(now).id - 1
+        latest_bucket_id = current_bucket_id
+        oldest_bucket_id= current_bucket_id
+
+        bucket_size_limit = 128 * 1024 * 1024
+
+            
+        while self.is_running:
+            try:
+                now = dt.datetime.now()
+                oldest_allowed_bucket_id = TimeBucket.from_datetime(now - dt.timedelta(days=30)).id
+
+                current_bucket_id = TimeBucket.from_datetime(now).id -1
+                if latest_bucket_id < current_bucket_id:
+                    latest_bucket_id = current_bucket_id
+                    target_bucket_id = latest_bucket_id
+                    target_size = bucket_size_limit
+                elif oldest_bucket_id >= oldest_allowed_bucket_id:
+                    while oldest_bucket_id >= oldest_allowed_bucket_id:
+                        check_bucket_id = DataEntityBucketId(
+                                time_bucket=TimeBucket(id = oldest_bucket_id),
+                                source=DataSource.X,
+                                label=None,
+                            )     
+                        size = self.storage.get_total_size_of_data_entities_in_bucket(check_bucket_id)
+                        if size >= bucket_size_limit:
+                            bt.logging.info(f"null bucket id {oldest_bucket_id} has {size} bytes data, skip scraping")
+                            oldest_bucket_id -= 1
+                            continue
+                        else:
+                            target_bucket_id = oldest_bucket_id
+                            target_size = bucket_size_limit - size
+                            bt.logging.info(f"null bucket id {oldest_bucket_id} has {size} bytes data, try scraping {target_size} bytes data")
+                            break
+                else :
+                    next_bucket_start = now.replace(minute=0, second=0, microsecond=0) + dt.timedelta(hours=1)
+                    wait_seconds = (next_bucket_start - now).total_seconds()
+                    await asyncio.sleep(wait_seconds)
+                    continue
+
+                
+                target_bucket = TimeBucket(id=target_bucket_id)
+                date_range = TimeBucket.to_date_range(target_bucket)
+                
+                bt.logging.success(f"Processing null data for timebucket {target_bucket_id} ({date_range})")
+                
+                # Configure and run the scraper
+                
+                # Run the parallel processing
+                total_size = await process_tags_parallel(
+                    tags=tags,
+                    date_range=date_range,
+                    storage=self.storage,
+                    max_total_size_bytes=target_size,
+                    parallel_tasks=3,
+                    chunk_size_mb=0.5
+                )
+                
+                bt.logging.success(f"Completed scraping for timebucket {target_bucket_id}. Target: {target_size/1024/1024:.2f}MB, Collected: {total_size/1024/1024:.2f}MB")
+                
+                # Calculate sleep time - either until next bucket or next check
+                if target_bucket_id == latest_bucket_id:
+                    # If we processed current bucket, wait until next bucket starts
+                    next_bucket_start = now.replace(minute=0, second=0, microsecond=0) + dt.timedelta(hours=1)
+                    wait_seconds = (next_bucket_start - now).total_seconds()
+                else:
+                    # If processing old buckets, don't wait long
+                    wait_seconds = 60  # 1 minute
+                
+                await asyncio.sleep(wait_seconds)
+                
+            except Exception as e:
+                bt.logging.error("Twitter scraping error: " + traceback.format_exc())
+                await asyncio.sleep(300)  # Wait 5 minutes before retrying after error

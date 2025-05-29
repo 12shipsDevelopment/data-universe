@@ -578,3 +578,32 @@ class MySQLMinerStorage(MinerStorage):
 
             # If we reach the end of the cursor then return all of the data entity buckets.
             return data_entity_buckets
+
+    def get_total_size_of_data_entities_in_bucket(
+            self, data_entity_bucket_id: DataEntityBucketId
+        ) -> int:
+            """Calculates the total size in bytes of all DataEntities matching the provided DataEntityBucketId."""
+            # Handle NULL label case
+            label = (
+                "NULL"
+                if (data_entity_bucket_id.label is None)
+                else data_entity_bucket_id.label.value
+            )
+
+            with contextlib.closing(self._create_connection()) as connection:
+                cursor = connection.cursor()
+                cursor.execute(
+                    """SELECT SUM(content_size_bytes) FROM DataEntity 
+                            WHERE timeBucketId = %s AND source = %s AND label = %s""",
+                    [
+                        data_entity_bucket_id.time_bucket.id,
+                        data_entity_bucket_id.source,
+                        label,
+                    ],
+                )
+
+                # Get the sum result
+                total_size = cursor.fetchone()[0]
+                
+                # If there are no matching rows, SUM will return NULL which becomes None in Python
+                return total_size if total_size is not None else 0

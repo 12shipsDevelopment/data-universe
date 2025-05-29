@@ -44,3 +44,10 @@ class MinerStorage(ABC):
             Dict[DataEntityBucketId, List[bytes]]: Map of each bucket id to contained contents.
         """
         raise NotImplemented
+
+
+    @abstractmethod
+    def get_total_size_of_data_entities_in_bucket(
+            self, data_entity_bucket_id: DataEntityBucketId
+        ) -> int:
+        raise NotImplemented

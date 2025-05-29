@@ -178,6 +178,31 @@ class API:
                 for x in parse_tweets(rep.json(), limit):
                     yield x
 
+    # search
+    async def search_raw_with_cursor(self, q: str, limit=-1, kv: KV = None, cursor: str | None = None):
+        op = OP_SearchTimeline
+        kv = {
+            "rawQuery": q,
+            "count": 20,
+            "product": "Latest",
+            "querySource": "typed_query",
+            **(kv or {}),
+        }
+        if cursor:
+            kv["cursor"] = cursor
+
+        async with aclosing(self._gql_items(op, kv, limit=limit)) as gen:
+            async for x in gen:
+                yield x
+
+    async def search_with_cursor(self, q: str, limit=-1, kv: KV = None, cursor: str | None = None):
+        async with aclosing(self.search_raw_with_cursor(q, limit=limit, kv=kv, cursor=cursor)) as gen:
+            async for rep in gen:
+                obj = rep.json()
+                cur = self._get_cursor(obj, "Bottom")
+                tweets = list(parse_tweets(obj, limit))
+                yield tweets, cur
+
     async def search_user(self, q: str, limit=-1, kv: KV = None):
         kv = {"product": "People", **(kv or {})}
         async with aclosing(self.search_raw(q, limit=limit, kv=kv)) as gen:

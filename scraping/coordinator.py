@@ -15,7 +15,7 @@ from scraping.provider import ScraperProvider
 from scraping.scraper import ScrapeConfig, ScraperId
 from storage.miner.miner_storage import MinerStorage
 from twscrape import AccountsPool, API
-from null_scraping import process_tags_parallel
+from scraping.null_scraping import process_tags_parallel
 
 
 class LabelScrapingConfig(StrictBaseModel):

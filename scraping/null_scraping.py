@@ -3,7 +3,7 @@ from collections import deque
 from datetime import datetime, timedelta
 import datetime as dt
 from twscrape import API
-from x.apidojo_scraper import ApiDojoTwitterScraper
+from scraping.x.apidojo_scraper import ApiDojoTwitterScraper
 from scraping.x.model import XContent
 from common.data import DataEntity
 from storage.miner.miner_storage import MinerStorage

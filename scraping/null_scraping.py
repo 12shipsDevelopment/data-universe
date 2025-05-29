@@ -77,6 +77,9 @@ async def fetch_tweets_for_tag(
     while await output_queue.should_continue():
         try:
             async for new_tweets, new_cursor in scraper.api.search_with_cursor(query, 1000, cursor=cursor):
+                if not await output_queue.should_continue():  # Check before processing each batch
+                    bt.logging.info(f"Size limit reached during processing, stopping fetch for tag {tag}")
+                    return
                 cursor = new_cursor
                 x_contents, is_retweets, skip_count = scraper._best_effort_parse_tweets(new_tweets)
                 skip_total += skip_count
@@ -168,11 +171,11 @@ async def process_tags_parallel(
     
     # Start producers
     producers = []
-    semaphore = asyncio.Semaphore(parallel_tasks)
+    # semaphore = asyncio.Semaphore(parallel_tasks)
     
     async def limited_worker(tag):
-        async with semaphore:
-            await fetch_tweets_for_tag(tag, date_range, output_queue, chunk_size_bytes)
+        # async with semaphore:
+        await fetch_tweets_for_tag(tag, date_range, output_queue, chunk_size_bytes)
     
     for tag in tags:
         if not await output_queue.should_continue():

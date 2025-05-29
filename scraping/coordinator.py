@@ -192,7 +192,7 @@ class ScraperCoordinator:
         self.config = config
 
         self.tracker = ScraperCoordinator.Tracker(self.config, dt.datetime.utcnow())
-        self.max_workers = 20
+        self.max_workers = 10
         self.is_running = False
         self.queue = asyncio.Queue()
 
@@ -229,8 +229,9 @@ class ScraperCoordinator:
             trends_task = asyncio.create_task(self.trends_task())
             workers.append(trends_task)
 
-        null_task = asyncio.create_task(self.null_scraping_task())
-        workers.append(null_task)
+        if os.environ.get("SUPPORT_NULL", "false") != "false":
+            null_task = asyncio.create_task(self.null_scraping_task())
+            workers.append(null_task)
 
         while self.is_running:
             now = dt.datetime.utcnow()
@@ -395,21 +396,12 @@ class ScraperCoordinator:
                     date_range=date_range,
                     storage=self.storage,
                     max_total_size_bytes=target_size,
-                    parallel_tasks=3,
                     chunk_size_bytes=512 * 1024
                 )
                 
                 bt.logging.success(f"Completed scraping for timebucket {target_bucket_id}. Target: {target_size/1024/1024:.2f}MB, Collected: {total_size/1024/1024:.2f}MB")
                 
-                # Calculate sleep time - either until next bucket or next check
-                if target_bucket_id == latest_bucket_id:
-                    # If we processed current bucket, wait until next bucket starts
-                    next_bucket_start = now.replace(minute=0, second=0, microsecond=0) + dt.timedelta(hours=1)
-                    wait_seconds = (next_bucket_start - now).total_seconds()
-                else:
-                    # If processing old buckets, don't wait long
-                    wait_seconds = 60  # 1 minute
-                
+                wait_seconds = 60  # 1 minute
                 await asyncio.sleep(wait_seconds)
                 
             except Exception as e:

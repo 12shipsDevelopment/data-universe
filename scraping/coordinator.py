@@ -172,6 +172,7 @@ class ScraperCoordinator:
                 last_scrape_time = self.last_scrape_time_per_scraper_id.get(
                     scraper_id, None
                 )
+                bt.logging.info(f"{now} - {last_scrape_time} >= {cadence}")
                 if last_scrape_time is None or now - last_scrape_time >= cadence:
                     results.append(scraper_id)
             return results
@@ -224,8 +225,9 @@ class ScraperCoordinator:
             )
             workers.append(worker)
 
-        trends_task = asyncio.create_task(self.trends_task())
-        workers.append(trends_task)
+        if os.environ["SUPPORT_TRENDS"] != "false":
+            trends_task = asyncio.create_task(self.trends_task())
+            workers.append(trends_task)
 
         null_task = asyncio.create_task(self.null_scraping_task())
         workers.append(null_task)
@@ -291,7 +293,7 @@ class ScraperCoordinator:
         await asyncio.sleep(5)
         while self.is_running:
             try:
-                now = dt.datetime.now()
+                now = dt.datetime.utcnow()
                 bt.logging.info("Running trends tasks...")
 
                 # Get the trends labels

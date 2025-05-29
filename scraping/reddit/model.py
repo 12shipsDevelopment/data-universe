@@ -29,7 +29,7 @@ class RedditContent(BaseModel):
     """
 
     class Config:
-        extra = "forbid"
+        extra = "ignore"
 
     id: str = Field(description="The unique ID of the post/comment")
     url: str = Field(

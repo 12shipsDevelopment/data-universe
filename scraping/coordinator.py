@@ -355,7 +355,7 @@ class ScraperCoordinator:
 
                 current_bucket_id = TimeBucket.from_datetime(now).id -1
                 if latest_bucket_id < current_bucket_id:
-                    latest_bucket_id = current_bucket_id
+                    latest_bucket_id += 1
                     target_bucket_id = latest_bucket_id
                     target_size = bucket_size_limit
                 elif oldest_bucket_id >= oldest_allowed_bucket_id:
@@ -396,7 +396,7 @@ class ScraperCoordinator:
                     storage=self.storage,
                     max_total_size_bytes=target_size,
                     parallel_tasks=3,
-                    chunk_size_mb=0.5
+                    chunk_size_bytes=512 * 1024
                 )
                 
                 bt.logging.success(f"Completed scraping for timebucket {target_bucket_id}. Target: {target_size/1024/1024:.2f}MB, Collected: {total_size/1024/1024:.2f}MB")

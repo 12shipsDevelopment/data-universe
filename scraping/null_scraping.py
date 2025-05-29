@@ -53,7 +53,7 @@ async def fetch_tweets_for_tag(
     tag: str,
     date_range: DateRange,
     output_queue: SizeAwareQueue,
-    chunk_size_mb: float = 1
+    chunk_size_bytes: int
 ):
     """Fetch tweets for a single tag in chunks"""
     scraper = ApiDojoTwitterScraper()
@@ -62,7 +62,6 @@ async def fetch_tweets_for_tag(
     cursor = None
     current_chunk = []
     current_chunk_size = 0
-    chunk_size_bytes = chunk_size_mb * 1024 * 1024
     chunk_num = 1
     skip_total = 0
     
@@ -148,10 +147,10 @@ async def process_tags_parallel(
     storage: MinerStorage,
     max_total_size_bytes: int = 128 * 1024 * 1024,
     parallel_tasks: int = 5,
-    chunk_size_mb: float = 1,
+    chunk_size_bytes: int = 1 *1024 *1024,
 ):
     """Process multiple tags in parallel with size control"""
-    output_queue = SizeAwareQueue(max_total_size_bytes)
+    output_queue = SizeAwareQueue(max_total_size_bytes + 2 * chunk_size_bytes)
     
     # Start consumer
     consumer_task = asyncio.create_task(process_tweets_consumer(output_queue, storage))
@@ -162,7 +161,7 @@ async def process_tags_parallel(
     
     async def limited_worker(tag):
         async with semaphore:
-            await fetch_tweets_for_tag(tag, date_range, output_queue, chunk_size_mb)
+            await fetch_tweets_for_tag(tag, date_range, output_queue, chunk_size_bytes)
     
     for tag in tags:
         if not await output_queue.should_continue():

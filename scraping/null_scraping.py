@@ -18,6 +18,7 @@ class SizeAwareQueue:
         self._max_size = max_total_size_bytes
         self._lock = asyncio.Lock()
         self._size_exceeded = False
+        self._count = 0
 
     async def put(self, chunk, chunk_size):
         async with self._lock:
@@ -30,6 +31,10 @@ class SizeAwareQueue:
                 
             self._queue.append(chunk)
             self._current_size += chunk_size
+            self._count +=1 
+            if self._count == 16:
+                self._count = 0
+                bt.logging.info(f"Scraped {self._current_size} bytes data")
             return True
 
     async def get(self):
@@ -92,8 +97,9 @@ async def fetch_tweets_for_tag(
                     if current_chunk_size >= chunk_size_bytes:
                         end = dt.datetime.now()
                         time_diff = end -start
-                        bt.logging.success(f"use tag {tag} scraped {len(current_chunk)} tweets in {chunk_num} chunk, with {current_chunk_size} bytes null tag tweets, skip {skip_total} old age tweets, elapsed {time_diff.total_seconds():.2f}s")
+                        bt.logging.success(f"Scraped {len(current_chunk)} tweets in chunk {tag}{chunk_num} , with {current_chunk_size} bytes null tag tweets, skip {skip_total} old age tweets, elapsed {time_diff.total_seconds():.2f}s")
                         if not await output_queue.put(current_chunk, current_chunk_size):
+                            bt.logging.info(f"fetch_tweets_for_tag {tag} exit")
                             return
                         current_chunk = []
                         current_chunk_size = 0
@@ -120,10 +126,16 @@ async def fetch_tweets_for_tag(
 
 async def process_tweets_consumer(output_queue: SizeAwareQueue, storage: MinerStorage, stop_event: asyncio.Event):
     """Consumer coroutine to process fetched tweets"""
+    count = 0
     while not stop_event.is_set():
         chunk = await output_queue.get()
         if chunk is None:
             await asyncio.sleep(1)
+            count +=1
+            if count == 120:
+                count = 0
+                bt.logging.info("consumer heart beats")
+            
             continue
         
         
@@ -138,6 +150,7 @@ async def process_tweets_consumer(output_queue: SizeAwareQueue, storage: MinerSt
         # await save_to_db(chunk)
         except Exception as e:
             bt.logging.error("null worker error: " + str(e))
+    bt.logging.info("process_tweets_consumer exit")
 
 async def process_tags_parallel(
     tags: list,

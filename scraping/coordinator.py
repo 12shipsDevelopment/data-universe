@@ -225,7 +225,7 @@ class ScraperCoordinator:
             )
             workers.append(worker)
 
-        if os.environ["SUPPORT_TRENDS"] != "false":
+        if os.environ.get("SUPPORT_TRENDS", "false") != "false":
             trends_task = asyncio.create_task(self.trends_task())
             workers.append(trends_task)
 

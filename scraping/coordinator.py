@@ -382,7 +382,7 @@ class ScraperCoordinator:
                             continue
                         else:
                             target_bucket_id = oldest_bucket_id
-                            target_bucket -= 1
+                            oldest_bucket_id -= 1
                             target_size = bucket_size_limit - size
                             bt.logging.info(f"null bucket id {oldest_bucket_id} has {size} bytes data, try scraping {target_size} bytes data")
                             break

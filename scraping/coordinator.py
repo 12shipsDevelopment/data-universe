@@ -341,26 +341,35 @@ class ScraperCoordinator:
         tags = [chr(ord('a') + i) for i in range(26)]
 
         # check bucket status
-        now = dt.datetime.now()
-        current_bucket_id = TimeBucket.from_datetime(now).id - 1
-        latest_bucket_id = current_bucket_id
-        oldest_bucket_id= current_bucket_id
+        start_bucket_id = os.environ.get("NULL_START_BUCKET_ID")
+        if start_bucket_id:
+            bucket_id_count = int(os.environ.get("NULL_BUCKET_ID_COUNT","1"))
+            latest_bucket_id = None
+            oldest_bucket_id = int(start_bucket_id)
+            oldest_allowed_bucket_id = int(start_bucket_id) - bucket_id_count
+            bt.logging.info(f"ready to scrape {bucket_id_count} buckets from {start_bucket_id} to {oldest_allowed_bucket_id}")
+        else:
+            now = dt.datetime.now()
+            current_bucket_id = TimeBucket.from_datetime(now).id - 1
+            latest_bucket_id = current_bucket_id
+            oldest_bucket_id= current_bucket_id
 
         bucket_size_limit = 128 * 1024 * 1024
 
             
         while self.is_running:
             try:
-                now = dt.datetime.now()
-                oldest_allowed_bucket_id = TimeBucket.from_datetime(now - dt.timedelta(days=30)).id
+                if not start_bucket_id:
+                    now = dt.datetime.now()
+                    oldest_allowed_bucket_id = TimeBucket.from_datetime(now - dt.timedelta(days=30)).id
 
                 current_bucket_id = TimeBucket.from_datetime(now).id -1
-                if latest_bucket_id < current_bucket_id:
+                if latest_bucket_id and latest_bucket_id < current_bucket_id:
                     latest_bucket_id += 1
                     target_bucket_id = latest_bucket_id
                     target_size = bucket_size_limit
-                elif oldest_bucket_id >= oldest_allowed_bucket_id:
-                    while oldest_bucket_id >= oldest_allowed_bucket_id:
+                elif oldest_bucket_id > oldest_allowed_bucket_id:
+                    while oldest_bucket_id > oldest_allowed_bucket_id:
                         check_bucket_id = DataEntityBucketId(
                                 time_bucket=TimeBucket(id = oldest_bucket_id),
                                 source=DataSource.X,

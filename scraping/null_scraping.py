@@ -34,7 +34,7 @@ class SizeAwareQueue:
             self._count +=1 
             if self._count == 16:
                 self._count = 0
-                bt.logging.info(f"Scraped {self._current_size} bytes data")
+                bt.logging.info(f"Scraped {self._current_size/1024/1024:.2f}MB data")
             return True
 
     async def get(self):

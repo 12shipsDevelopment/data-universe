@@ -347,7 +347,7 @@ class ScraperCoordinator:
             latest_bucket_id = None
             oldest_bucket_id = int(start_bucket_id)
             oldest_allowed_bucket_id = int(start_bucket_id) - bucket_id_count
-            bt.logging.info(f"ready to scrape {bucket_id_count} buckets from {start_bucket_id} to {oldest_allowed_bucket_id}")
+            bt.logging.info(f"ready to scrape {bucket_id_count} null buckets from {start_bucket_id} to {oldest_allowed_bucket_id}")
         else:
             now = dt.datetime.now()
             current_bucket_id = TimeBucket.from_datetime(now).id - 1
@@ -359,8 +359,8 @@ class ScraperCoordinator:
             
         while self.is_running:
             try:
+                now = dt.datetime.now()
                 if not start_bucket_id:
-                    now = dt.datetime.now()
                     oldest_allowed_bucket_id = TimeBucket.from_datetime(now - dt.timedelta(days=30)).id
 
                 current_bucket_id = TimeBucket.from_datetime(now).id -1
@@ -386,9 +386,11 @@ class ScraperCoordinator:
                             target_size = bucket_size_limit - size
                             bt.logging.info(f"null bucket id {oldest_bucket_id} has {size} bytes data, try scraping {target_size} bytes data")
                             break
+                    continue
                 else :
                     next_bucket_start = now.replace(minute=0, second=0, microsecond=0) + dt.timedelta(hours=1)
                     wait_seconds = (next_bucket_start - now).total_seconds()
+                    bt.logging.info(f"no null bucket to scrape, sleep to {next_bucket_start}, total {wait_seconds}s")
                     await asyncio.sleep(wait_seconds)
                     continue
 
@@ -409,7 +411,7 @@ class ScraperCoordinator:
                     chunk_size_bytes=512 * 1024
                 )
                 
-                bt.logging.success(f"Completed scraping for timebucket {target_bucket_id}. Target: {target_size/1024/1024:.2f}MB, Collected: {total_size/1024/1024:.2f}MB")
+                bt.logging.success(f"Completed scraping null for timebucket {target_bucket_id}. Target: {target_size/1024/1024:.2f}MB, Collected: {total_size/1024/1024:.2f}MB")
                 
                 wait_seconds = 60  # 1 minute
                 await asyncio.sleep(wait_seconds)

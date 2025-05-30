@@ -386,7 +386,8 @@ class ScraperCoordinator:
                             target_size = bucket_size_limit - size
                             bt.logging.info(f"null bucket id {oldest_bucket_id} has {size} bytes data, try scraping {target_size} bytes data")
                             break
-                    continue
+                    if oldest_bucket_id == oldest_allowed_bucket_id:
+                        continue
                 else :
                     next_bucket_start = now.replace(minute=0, second=0, microsecond=0) + dt.timedelta(hours=1)
                     wait_seconds = (next_bucket_start - now).total_seconds()

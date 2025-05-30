@@ -72,7 +72,7 @@ async def fetch_tweets_for_tag(
     
     # Time range filters
     # age_limit = dt.datetime.utcnow().replace(tzinfo=dt.timezone.utc) - dt.timedelta(days=30)
-    current_hour_start = dt.datetime.utcnow().replace(tzinfo=dt.timezone.utc) - dt.timedelta(hours=1)
+    current_hour_start = date_range.start
     start = dt.datetime.now()
     while await output_queue.should_continue():
         try:

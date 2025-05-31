@@ -284,7 +284,7 @@ class MySQLMinerStorage(MinerStorage):
             cursor = connection.cursor()
             cursor.execute(
                 """SELECT * FROM DataEntity 
-                        WHERE timeBucketId = %s AND source = %s AND label = %s""",
+                        WHERE timeBucketId = %s AND label = %s AND source = %s""",
                 [
                     data_entity_bucket_id.time_bucket.id,
                     data_entity_bucket_id.source,
@@ -363,7 +363,7 @@ class MySQLMinerStorage(MinerStorage):
                 cursor.execute(
                     """SELECT SUM(contentSizeBytes) AS bucketSize, timeBucketId, source, label FROM DataEntity
                             WHERE timeBucketId >= %s
-                            GROUP BY timeBucketId, source, label
+                            GROUP BY timeBucketId, label, source
                             ORDER BY bucketSize DESC
                             LIMIT %s
                             """,
@@ -538,7 +538,7 @@ class MySQLMinerStorage(MinerStorage):
             cursor.execute(
                 """SELECT SUM(contentSizeBytes) AS bucketSize, timeBucketId, source, label FROM DataEntity
                         WHERE timeBucketId >= %s
-                        GROUP BY timeBucketId, source, label
+                        GROUP BY timeBucketId, label, source
                         ORDER BY bucketSize DESC
                         LIMIT %s
                         """,
@@ -594,7 +594,7 @@ class MySQLMinerStorage(MinerStorage):
                 cursor = connection.cursor()
                 cursor.execute(
                     """SELECT SUM(contentSizeBytes) FROM DataEntity 
-                            WHERE timeBucketId = %s AND source = %s AND label = %s""",
+                            WHERE timeBucketId = %s AND label = %s AND source = %s""",
                     [
                         data_entity_bucket_id.time_bucket.id,
                         data_entity_bucket_id.source,

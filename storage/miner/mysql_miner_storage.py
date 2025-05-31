@@ -287,8 +287,8 @@ class MySQLMinerStorage(MinerStorage):
                         WHERE timeBucketId = %s AND label = %s AND source = %s""",
                 [
                     data_entity_bucket_id.time_bucket.id,
-                    data_entity_bucket_id.source,
                     label,
+                    data_entity_bucket_id.source,
                 ],
             )
 
@@ -597,8 +597,8 @@ class MySQLMinerStorage(MinerStorage):
                             WHERE timeBucketId = %s AND label = %s AND source = %s""",
                     [
                         data_entity_bucket_id.time_bucket.id,
-                        data_entity_bucket_id.source,
                         label,
+                        data_entity_bucket_id.source,
                     ],
                 )
 

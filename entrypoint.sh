@@ -49,10 +49,7 @@ EOF
 main() {
 
 # required env
-[ ".${COLDKEY_MNEMONIC}" != "." ] && [ ".${HOTKEY_MNEMONIC}" != "." ] && [ ".${PORT}" != "." ] && [ ".${NETWORK}" != "." ] && [ ".${NETUID}" != "." ] && [ ".${MIN_STAKE_REQUIRED}" != "." ] && [ ".${DUFS_USERNAME}" != "." ] && [ ".${DUFS_PASSWORD}" != "." ] && [ ".${DATABASE_HOST}" != "." ] && [ ".${REDIS_HOST}" != "." ] && [ ".${REDIS_PORT}" != "." ] || (echo "Less Required ENV" && exit 1)
-export NULL_START_BUCKET_ID=$(redis-cli -h ${REDIS_HOST} -p ${REDIS_PORT} RPOP NULL_START_BUCKET_ID)
-[ ".${NULL_START_BUCKET_ID}" = "." ] && echo "Get NULL_START_BUCKET_ID fail, exit ..." && exit 1
-echo "=> NULL_START_BUCKET_ID ${NULL_START_BUCKET_ID}"
+[ ".${COLDKEY_MNEMONIC}" != "." ] && [ ".${HOTKEY_MNEMONIC}" != "." ] && [ ".${PORT}" != "." ] && [ ".${NETWORK}" != "." ] && [ ".${NETUID}" != "." ] && [ ".${MIN_STAKE_REQUIRED}" != "." ] && [ ".${DUFS_USERNAME}" != "." ] && [ ".${DUFS_PASSWORD}" != "." ] && [ ".${DATABASE_HOST}" != "." ] || (echo "Less Required ENV" && exit 1)
 # option env
 [ ".${BASEURL}" = "." ] && export BASEURL="https://taos-vl.databox.live"
 [ ".${S3_AUTH_URL}" != "." ] && export S3_AUTH_URL_OPTION="--s3_auth_url ${S3_AUTH_URL}"
@@ -104,6 +101,9 @@ fi
 
 echo "=> twscrape stats"
 twscrape stats
+
+export NULL_START_BUCKET_ID=$(echo "$(date +%s) / 3600 - 48" | bc)
+echo "=> NULL_START_BUCKET_ID ${NULL_START_BUCKET_ID}"
 
 echo "=> python neurons/miner.py --axon.port ${PORT} --subtensor.NETWORK ${NETWORK} --netuid ${NETUID} --blacklist.min_stake_required ${MIN_STAKE_REQUIRED} --wallet.name coldkey --wallet.hotkey default --neuron.debug --logging.debug --blacklist.force_validator_permit --neuron.scraping_config_file ./scraping_config.json ${S3_AUTH_URL_OPTION} ${HUGGINGFACE_TOKEN_OPTION} $@"
 python neurons/miner.py --axon.port ${PORT} --subtensor.NETWORK ${NETWORK} --netuid ${NETUID} --blacklist.min_stake_required ${MIN_STAKE_REQUIRED} --wallet.name coldkey --wallet.hotkey default --neuron.debug --logging.debug --blacklist.force_validator_permit --neuron.scraping_config_file ./scraping_config.json ${S3_AUTH_URL_OPTION} ${HUGGINGFACE_TOKEN_OPTION} $@

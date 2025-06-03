@@ -239,8 +239,8 @@ class ScraperCoordinator:
             )
             if os.environ.get("NULL_INIT_TASKS", "false") != "false":
                 scheduler.init_tasks()
-            schedule_task = asyncio.create_task(self.schedule_realtime_task(scheduler))
-            workers.append(schedule_task)
+                schedule_task = asyncio.create_task(self.schedule_realtime_task(scheduler))
+                workers.append(schedule_task)
 
             for i in range(int(os.environ.get("NULL_PARALLEL", "20"))):
                 null_task = asyncio.create_task(self.null_scraping_task(scheduler))

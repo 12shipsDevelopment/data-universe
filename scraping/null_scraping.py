@@ -65,6 +65,7 @@ async def fetch_tweets_for_tag(
 
     query = generate_current_hour_query(tag, date_range)
     cursor = None
+    last_cursor = None
     current_chunk = []
     current_chunk_size = 0
     chunk_num = 1
@@ -102,7 +103,7 @@ async def fetch_tweets_for_tag(
                         time_diff = end -start
                         bt.logging.success(f"Scraped {len(current_chunk)} tweets in chunk {tag}{chunk_num} , with {current_chunk_size} bytes null tag tweets, skip {skip_total} old age tweets, elapsed {time_diff.total_seconds():.2f}s")
                         if not await output_queue.put(current_chunk, current_chunk_size):
-                            bt.logging.info(f"fetch_tweets_for_tag {tag} exit")
+                            bt.logging.success(f"end of scrape {tag}")
                             return
                         current_chunk = []
                         current_chunk_size = 0
@@ -110,20 +111,24 @@ async def fetch_tweets_for_tag(
                         start = end
                         skip_total = 0
 
-                # Submit remaining tweets when no more data
-                if not cursor and current_chunk:
-                    end = dt.datetime.now()
-                    time_diff = end -start
-                    bt.logging.success(f"use tag {tag} scraped {len(current_chunk)} tweets in {chunk_num} chunk (last), with {current_chunk_size} bytes null tag tweets, elapsed {time_diff.total_seconds():.2f}s")
+            if cursor == last_cursor:
+                end = dt.datetime.now()
+                time_diff = end -start
+                if len(current_chunk) > 0:
+                    bt.logging.success(f"use tag {tag} scraped {len(current_chunk)} tweets in  chunk {tag}{chunk_num} (last), with {current_chunk_size} bytes null tag tweets, elapsed {time_diff.total_seconds():.2f}s")
                     await output_queue.put(current_chunk, current_chunk_size)
-                    return
+                bt.logging.success(f"end of scrape {tag}")
+                return
+            else: 
+                last_cursor = cursor
 
         except Exception as e:
             bt.logging.error(f"Error processing tag {tag}: {str(e)}")
             if current_chunk:  # Submit collected data on error
                 end = dt.datetime.now()
                 time_diff = end -start
-                bt.logging.success(f"use tag {tag} scraped {len(current_chunk)} in {chunk_num} chunk (last), with {current_chunk_size} bytes null tag tweets, elapsed {time_diff.total_seconds():.2f}s")
+                bt.logging.success(f"use tag {tag} scraped {len(current_chunk)} in  chunk {tag}{chunk_num} (last), with {current_chunk_size} bytes null tag tweets, elapsed {time_diff.total_seconds():.2f}s")
+                bt.logging.success(f"end of scrape {tag}")
                 await output_queue.put(current_chunk, current_chunk_size)
             return
 
@@ -171,11 +176,11 @@ async def process_tags_parallel(
     
     # Start producers
     producers = []
-    # semaphore = asyncio.Semaphore(parallel_tasks)
+    semaphore = asyncio.Semaphore(parallel_tasks)
     
     async def limited_worker(tag):
-        # async with semaphore:
-        await fetch_tweets_for_tag(tag, date_range, output_queue, chunk_size_bytes)
+        async with semaphore:
+            await fetch_tweets_for_tag(tag, date_range, output_queue, chunk_size_bytes)
     
     for tag in tags:
         if not await output_queue.should_continue():

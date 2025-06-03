@@ -58,14 +58,14 @@ async def fetch_tweets_for_tag(
     tag: str,
     date_range: DateRange,
     output_queue: SizeAwareQueue,
-    chunk_size_bytes: int
-):
+    chunk_size_bytes: int,
+    cursor: str|None = None
+) :
     """Fetch tweets for a single tag in chunks"""
     scraper = ApiDojoTwitterScraper()
 
     query = generate_current_hour_query(tag, date_range)
-    cursor = None
-    last_cursor = None
+    last_cursor = cursor
     current_chunk = []
     current_chunk_size = 0
     chunk_num = 1
@@ -80,7 +80,7 @@ async def fetch_tweets_for_tag(
             async for new_tweets, new_cursor in scraper.api.search_with_cursor(query, 1000, cursor=cursor):
                 if not await output_queue.should_continue():  # Check before processing each batch
                     bt.logging.info(f"Size limit reached during processing, stopping fetch for tag {tag}")
-                    return
+                    return cursor
                 cursor = new_cursor
                 x_contents, is_retweets, skip_count = scraper._best_effort_parse_tweets(new_tweets)
                 skip_total += skip_count
@@ -104,7 +104,7 @@ async def fetch_tweets_for_tag(
                         bt.logging.success(f"Scraped {len(current_chunk)} tweets in chunk {tag}{chunk_num} , with {current_chunk_size} bytes null tag tweets, skip {skip_total} old age tweets, elapsed {time_diff.total_seconds():.2f}s")
                         if not await output_queue.put(current_chunk, current_chunk_size):
                             bt.logging.success(f"end of scrape {tag}")
-                            return
+                            return cursor
                         current_chunk = []
                         current_chunk_size = 0
                         chunk_num += 1
@@ -118,7 +118,7 @@ async def fetch_tweets_for_tag(
                     bt.logging.success(f"use tag {tag} scraped {len(current_chunk)} tweets in  chunk {tag}{chunk_num} (last), with {current_chunk_size} bytes null tag tweets, elapsed {time_diff.total_seconds():.2f}s")
                     await output_queue.put(current_chunk, current_chunk_size)
                 bt.logging.success(f"end of scrape {tag}")
-                return
+                return None
             else: 
                 last_cursor = cursor
 
@@ -130,7 +130,7 @@ async def fetch_tweets_for_tag(
                 bt.logging.success(f"use tag {tag} scraped {len(current_chunk)} in  chunk {tag}{chunk_num} (last), with {current_chunk_size} bytes null tag tweets, elapsed {time_diff.total_seconds():.2f}s")
                 bt.logging.success(f"end of scrape {tag}")
                 await output_queue.put(current_chunk, current_chunk_size)
-            return
+            return cursor
 
 async def process_tweets_consumer(output_queue: SizeAwareQueue, storage: MinerStorage, stop_event: asyncio.Event):
     """Consumer coroutine to process fetched tweets"""
@@ -161,12 +161,12 @@ async def process_tweets_consumer(output_queue: SizeAwareQueue, storage: MinerSt
     bt.logging.info("process_tweets_consumer exit")
 
 async def process_tags_parallel(
-    tags: list,
+    tag: str,
     date_range :DateRange,
     storage: MinerStorage,
     max_total_size_bytes: int = 128 * 1024 * 1024,
-    parallel_tasks: int = 5,
     chunk_size_bytes: int = 1 *1024 *1024,
+    cursor: str|None = None
 ):
     """Process multiple tags in parallel with size control"""
     output_queue = SizeAwareQueue(max_total_size_bytes + 2 * chunk_size_bytes)
@@ -174,24 +174,11 @@ async def process_tags_parallel(
     # Start consumer
     consumer_task = asyncio.create_task(process_tweets_consumer(output_queue, storage, stop_event))
     
-    # Start producers
-    producers = []
-    semaphore = asyncio.Semaphore(parallel_tasks)
-    
-    async def limited_worker(tag):
-        async with semaphore:
-            await fetch_tweets_for_tag(tag, date_range, output_queue, chunk_size_bytes)
-    
-    for tag in tags:
-        if not await output_queue.should_continue():
-            break
-        producers.append(asyncio.create_task(limited_worker(tag)))
-    
     # Wait for producers to complete
-    await asyncio.gather(*producers, return_exceptions=True)
+    new_cursor= await fetch_tweets_for_tag(tag, date_range, output_queue, chunk_size_bytes, cursor)
     
     # Notify consumer to finish
     stop_event.set()
     await consumer_task
     
-    return output_queue._current_size
+    return new_cursor

@@ -230,17 +230,18 @@ class ScraperCoordinator:
             trends_task = asyncio.create_task(self.trends_task())
             workers.append(trends_task)
 
+        scheduler = None
         if os.environ.get("SUPPORT_NULL", "false") != "false":
             scheduler = NullScheduler(
-                host=os.environ.get("REDIS_HOST"), 
-                port=os.environ.get("REDIS_PORT"), 
-                password=os.environ.get("REDIS_PASSWORD")
+                host=os.environ.get("REDIS_HOST", "127.0.0.1"), 
+                port=int(os.environ.get("REDIS_PORT", "6379")), 
+                password=os.environ.get("REDIS_PASSWORD", "")
             )
             if os.environ.get("NULL_INIT_TASKS", "false") != "false":
                 scheduler.init_tasks()
             scheduler.schedule_realtime_tasks()
 
-            null_task = asyncio.create_task(self.null_scraping_task())
+            null_task = asyncio.create_task(self.null_scraping_task(scheduler))
             workers.append(null_task)
 
         while self.is_running:
@@ -342,87 +343,88 @@ class ScraperCoordinator:
             except Exception as e:
                 bt.logging.error("Trends : " + traceback.format_exc())
 
-    async def null_scraping_task(self):
+    async def null_scraping_task(self, scheduler: NullScheduler):
         """Runs periodic null bucket scraping tasks using timebuckets."""
         bt.logging.info("Starting null scraping tasks...")
         await asyncio.sleep(5)
         
-        # Initialize tags
-        tags = [chr(ord('a') + i) for i in range(26)]
-
-        # check bucket status
-        start_bucket_id = os.environ.get("NULL_START_BUCKET_ID")
-        if start_bucket_id:
-            bucket_id_count = int(os.environ.get("NULL_BUCKET_ID_COUNT","1"))
-            latest_bucket_id = None
-            oldest_bucket_id = int(start_bucket_id)
-            oldest_allowed_bucket_id = int(start_bucket_id) - bucket_id_count
-            bt.logging.info(f"ready to scrape {bucket_id_count} null buckets from {start_bucket_id} to {oldest_allowed_bucket_id}")
-        else:
-            now = dt.datetime.now()
-            current_bucket_id = TimeBucket.from_datetime(now).id - 1
-            latest_bucket_id = current_bucket_id
-            oldest_bucket_id= current_bucket_id
-
-        bucket_size_limit = 128 * 1024 * 1024
+        bucket_size_limit = 128* 1024 * 1024
 
             
         while self.is_running:
             try:
-                now = dt.datetime.now()
-                if not start_bucket_id:
-                    oldest_allowed_bucket_id = TimeBucket.from_datetime(now - dt.timedelta(days=30)).id
+                task = scheduler.get_task()
 
-                current_bucket_id = TimeBucket.from_datetime(now).id -1
-                if latest_bucket_id and latest_bucket_id < current_bucket_id:
-                    latest_bucket_id += 1
-                    target_bucket_id = latest_bucket_id
-                    target_size = bucket_size_limit
-                elif oldest_bucket_id > oldest_allowed_bucket_id:
-                    while oldest_bucket_id > oldest_allowed_bucket_id:
-                        check_bucket_id = DataEntityBucketId(
-                                time_bucket=TimeBucket(id = oldest_bucket_id),
-                                source=DataSource.X,
-                                label=None,
-                            )     
-                        size = self.storage.get_total_size_of_data_entities_in_bucket(check_bucket_id)
-                        if size >= bucket_size_limit:
-                            bt.logging.info(f"null bucket id {oldest_bucket_id} has {size} bytes data, skip scraping")
-                            oldest_bucket_id -= 1
-                            continue
-                        else:
-                            target_bucket_id = oldest_bucket_id
-                            oldest_bucket_id -= 1
-                            target_size = bucket_size_limit - size
-                            bt.logging.info(f"null bucket id {oldest_bucket_id} has {size} bytes data, try scraping {target_size} bytes data")
-                            break
-                    if oldest_bucket_id == oldest_allowed_bucket_id:
-                        continue
-                else :
+                now = dt.datetime.now()
+                if not task:
                     next_bucket_start = now.replace(minute=0, second=0, microsecond=0) + dt.timedelta(hours=1)
                     wait_seconds = (next_bucket_start - now).total_seconds()
                     bt.logging.info(f"no null bucket to scrape, sleep to {next_bucket_start}, total {wait_seconds}s")
                     await asyncio.sleep(wait_seconds)
                     continue
 
+                bucketId = task["timeBucketId"]
+                tag = task["tag"]
+                contentSize = task["contentSizeBytes"]
+                cursor = task["cursor"]
+
+                if task["timeBucketId"] < TimeBucket.from_datetime(now - dt.timedelta(days=30)).id:
+                    continue
                 
-                target_bucket = TimeBucket(id=target_bucket_id)
+                
+                check_bucket_id = DataEntityBucketId(
+                        time_bucket=TimeBucket(id = task["timeBucketId"]),
+                        source=DataSource.X,
+                        label=None,
+                    )
+                if contentSize != 0:
+                    size = self.storage.get_total_size_of_data_entities_in_bucket(check_bucket_id)
+                else:
+                    size = contentSize
+
+                if size >= bucket_size_limit:
+                    bt.logging.info(f"null bucket id {bucketId} has {size} bytes data, skip scraping")
+                    continue
+                else:
+                    target_size = bucket_size_limit - size
+                    bt.logging.info(f"null bucket id {bucketId} has {size} bytes data, try scraping {target_size} bytes data")
+                
+                target_bucket = TimeBucket(id=bucketId)
                 date_range = TimeBucket.to_date_range(target_bucket)
                 
-                bt.logging.success(f"Processing null data for timebucket {target_bucket_id} ({date_range})")
+                bt.logging.success(f"Processing null data for timebucket {bucketId} ({date_range})")
                 
                 # Configure and run the scraper
                 
                 # Run the parallel processing
-                total_size = await process_tags_parallel(
-                    tags=tags,
+                cursor = await process_tags_parallel(
+                    tag=tag,
                     date_range=date_range,
                     storage=self.storage,
                     max_total_size_bytes=target_size,
-                    chunk_size_bytes=512 * 1024
+                    chunk_size_bytes=512 * 1024,
+                    cursor=cursor
                 )
                 
-                bt.logging.success(f"Completed scraping null for timebucket {target_bucket_id}. Target: {target_size/1024/1024:.2f}MB, Collected: {total_size/1024/1024:.2f}MB")
+                new_size = self.storage.get_total_size_of_data_entities_in_bucket(check_bucket_id)
+                bt.logging.success(f"Completed scraping null for timebucket {bucketId}. Bucket collected: {new_size/1024/1024:.2f}MB")
+
+                if new_size < bucket_size_limit:
+                    if cursor:
+                        scheduler.add_task({
+                            "timeBucketId": bucketId,
+                            "contentSizeBytes": new_size,
+                            "tag": tag,
+                            "cursor": cursor
+                        }, left=False)
+                    else:
+                        scheduler.add_task({
+                            "timeBucketId": bucketId,
+                            "contentSizeBytes": new_size,
+                            "tag": next_tag(tag),
+                            "cursor": cursor
+                        }, left=False)
+
                 
                 wait_seconds = 60  # 1 minute
                 await asyncio.sleep(wait_seconds)
@@ -430,3 +432,19 @@ class ScraperCoordinator:
             except Exception as e:
                 bt.logging.error("Twitter scraping error: " + traceback.format_exc())
                 await asyncio.sleep(300)  # Wait 5 minutes before retrying after error
+
+def next_tag(tag: str):
+    chars = list(tag)
+    i = len(chars) - 1
+    
+    while i >= 0:
+        if chars[i] != 'z':
+            chars[i] = chr(ord(chars[i]) + 1)
+            break
+        else:
+            chars[i] = 'a'
+            if i == 0:
+                chars.insert(0, 'a')
+            i -= 1
+    
+    return ''.join(chars)

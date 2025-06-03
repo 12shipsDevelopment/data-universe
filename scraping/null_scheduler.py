@@ -44,22 +44,24 @@ class NullScheduler:
         now = datetime.utcnow().replace(minute=0, second=0, microsecond=0)
         start = now - timedelta(days=days_back)
         while start < now:
-            timeBucketId = TimeBucket.from_datetime(start).id
+            timeBucketId = TimeBucket.from_datetime(start).id - 1
             self.add_task({
                 "timeBucketId": timeBucketId,
                 "contentSizeBytes": 0,
+                "tag": "a",
                 "cursor": None
-            }, left=True)
+            }, left=False)
             start += timedelta(hours=1)
         print("initialize 30days tasks completed")
 
     def schedule_realtime_tasks(self):
         while True:
             now = datetime.utcnow().replace(minute=0, second=0, microsecond=0)
-            timeBucketId = TimeBucket.from_datetime(now).id
+            timeBucketId = TimeBucket.from_datetime(now).id - 1
             self.add_task({
                 "timeBucketId": timeBucketId,
                 "contentSizeBytes": 0,
+                "tag": "a",
                 "cursor": None
             }, left=False)
             time.sleep(10*60) # 10 minutes

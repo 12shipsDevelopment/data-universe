@@ -437,7 +437,7 @@ class ScraperCoordinator:
     async def schedule_realtime_task(self, scheduler: NullScheduler):
         while self.is_running:
             scheduler.schedule_realtime_tasks()
-        await asyncio.sleep(10*60) # 10 minutes
+            await asyncio.sleep(10*60) # 10 minutes
 
 
 def next_tag(tag: str):

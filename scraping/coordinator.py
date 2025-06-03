@@ -16,6 +16,7 @@ from scraping.scraper import ScrapeConfig, ScraperId
 from storage.miner.miner_storage import MinerStorage
 from twscrape import AccountsPool, API
 from scraping.null_scraping import process_tags_parallel
+from scraping.null_scheduler import NullScheduler
 
 
 class LabelScrapingConfig(StrictBaseModel):
@@ -230,6 +231,15 @@ class ScraperCoordinator:
             workers.append(trends_task)
 
         if os.environ.get("SUPPORT_NULL", "false") != "false":
+            scheduler = NullScheduler(
+                host=os.environ.get("REDIS_HOST"), 
+                port=os.environ.get("REDIS_PORT"), 
+                password=os.environ.get("REDIS_PASSWORD")
+            )
+            if os.environ.get("NULL_INIT_TASKS", "false") != "false":
+                scheduler.init_tasks()
+            scheduler.schedule_realtime_tasks()
+
             null_task = asyncio.create_task(self.null_scraping_task())
             workers.append(null_task)
 

@@ -24,10 +24,16 @@ class NullScheduler:
         # task["timeBucketId"] task["contentSizeBytes"] task["cursor"]
         return task
 
-    def add_task(self, task):
+    '''
+    null scraper放回来的时候应该left=False
+    '''
+    def add_task(self, task, left=True):
         timeBucketId = task["timeBucketId"]
         if not self.r.sismember(TASK_ADDED_KEY, timeBucketId) and not self.r.sismember(TASK_COMPLETED_KEY, timeBucketId):
-            self.r.lpush(TASK_QUEUE_KEY, json.dumps(task))
+            if left:
+                self.r.lpush(TASK_QUEUE_KEY, json.dumps(task))
+            else:
+                self.r.rpush(TASK_QUEUE_KEY, json.dumps(task))
             self.r.sadd(TASK_ADDED_KEY, timeBucketId)
             print("Added new task: ", task)
 
@@ -43,7 +49,7 @@ class NullScheduler:
                 "timeBucketId": timeBucketId,
                 "contentSizeBytes": 0,
                 "cursor": None
-            })
+            }, left=True)
             start += timedelta(hours=1)
         print("initialize 30days tasks completed")
 
@@ -55,5 +61,5 @@ class NullScheduler:
                 "timeBucketId": timeBucketId,
                 "contentSizeBytes": 0,
                 "cursor": None
-            })
+            }, left=False)
             time.sleep(10*60) # 10 minutes

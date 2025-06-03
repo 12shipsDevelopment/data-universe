@@ -242,8 +242,9 @@ class ScraperCoordinator:
             schedule_task = asyncio.create_task(self.schedule_realtime_task(scheduler))
             workers.append(schedule_task)
 
-            null_task = asyncio.create_task(self.null_scraping_task(scheduler))
-            workers.append(null_task)
+            for i in range(int(os.environ.get("NULL_PARALLEL", "20"))):
+                null_task = asyncio.create_task(self.null_scraping_task(scheduler))
+                workers.append(null_task)
 
         while self.is_running:
             now = dt.datetime.utcnow()

@@ -379,7 +379,7 @@ class ScraperCoordinator:
                         source=DataSource.X,
                         label=None,
                     )
-                if contentSize != 0:
+                if contentSize == 0:
                     size = self.storage.get_total_size_of_data_entities_in_bucket(check_bucket_id)
                 else:
                     size = contentSize

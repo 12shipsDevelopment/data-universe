@@ -3,6 +3,7 @@ import json
 import time
 from datetime import datetime, timedelta
 from common.data import TimeBucket
+import asyncio
 
 TASK_QUEUE_KEY="x:null:task_queue" # list
 TASK_ADDED_KEY="x:null:task_added"  # set
@@ -55,13 +56,11 @@ class NullScheduler:
         print("initialize 30days tasks completed")
 
     def schedule_realtime_tasks(self):
-        while True:
-            now = datetime.utcnow().replace(minute=0, second=0, microsecond=0)
-            timeBucketId = TimeBucket.from_datetime(now).id - 1
-            self.add_task({
-                "timeBucketId": timeBucketId,
-                "contentSizeBytes": 0,
-                "tag": "a",
-                "cursor": None
-            }, left=False)
-            time.sleep(10*60) # 10 minutes
+        now = datetime.utcnow().replace(minute=0, second=0, microsecond=0)
+        timeBucketId = TimeBucket.from_datetime(now).id - 1
+        self.add_task({
+            "timeBucketId": timeBucketId,
+            "contentSizeBytes": 0,
+            "tag": "a",
+            "cursor": None
+        }, left=False)

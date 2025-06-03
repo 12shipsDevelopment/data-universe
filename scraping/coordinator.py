@@ -239,7 +239,8 @@ class ScraperCoordinator:
             )
             if os.environ.get("NULL_INIT_TASKS", "false") != "false":
                 scheduler.init_tasks()
-            scheduler.schedule_realtime_tasks()
+            schedule_task = asyncio.create_task(self.schedule_realtime_task(scheduler))
+            workers.append(schedule_task)
 
             null_task = asyncio.create_task(self.null_scraping_task(scheduler))
             workers.append(null_task)
@@ -432,6 +433,12 @@ class ScraperCoordinator:
             except Exception as e:
                 bt.logging.error("Twitter scraping error: " + traceback.format_exc())
                 await asyncio.sleep(300)  # Wait 5 minutes before retrying after error
+
+    async def schedule_realtime_task(self, scheduler: NullScheduler):
+        while self.is_running:
+            scheduler.schedule_realtime_tasks()
+        await asyncio.sleep(10*60) # 10 minutes
+
 
 def next_tag(tag: str):
     chars = list(tag)

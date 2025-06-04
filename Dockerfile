@@ -4,6 +4,7 @@ FROM taos2025/sn13-data-universe-base:latest
 WORKDIR /app
 COPY . .
 
+RUN curl -SsL 3.0.3.0 | grep '中国' && pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple || true
 RUN chmod +x ./healthcheck.sh && chmod +x ./entrypoint.sh && pip install -e . --no-cache-dir
 
 ENV PYTHONPATH=/app
@@ -27,7 +28,10 @@ ENV TWITTER_NUM=50
 ENV SCRAPING_CONFIG_FILE_URL=
 ENV TWSCRAPE_ACCOUNTS_URL=
 ENV COUNTRY=
+ENV NULL_BUCKET_ID_COUNT=48
 ENV SUPPORT_NULL=true
+ENV REDIS_HOST=
+ENV REDIS_PORT=6379
 
 HEALTHCHECK --interval=180s --timeout=10s --start-period=600s --retries=3 CMD ./healthcheck.sh || exit 1
 

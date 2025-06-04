@@ -28,3 +28,4 @@ httpx>=0.26.0
 pyotp>=2.9.0
 mysql-connector-python==9.3.0
 redis==6.2.0
+simplejson==3.20.1

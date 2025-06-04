@@ -176,7 +176,7 @@ class MySQLMinerStorage(MinerStorage):
                 )
 
             # Insert overwriting duplicate keys (in case of updated content).
-            cursor.executemany("REPLACE INTO DataEntity VALUES (%s,%s,%s,%s,%s,%s,%s)", values)
+            cursor.executemany("INSERT IGNORE INTO DataEntity VALUES (%s,%s,%s,%s,%s,%s,%s)", values)
 
             # Commit the insert.
             connection.commit()

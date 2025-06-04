@@ -1,5 +1,5 @@
 import redis
-import json
+import simplejson as json
 import time
 from datetime import datetime, timedelta
 from common.data import TimeBucket

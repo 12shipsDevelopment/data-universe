@@ -1,7 +1,7 @@
 FROM python:3.10-slim
 
 # Install dependencies
-RUN apt-get update && apt-get install -y telnet default-mysql-client redis-tools vim git unzip jq bc iproute2 vnstat curl && rm -rf /var/lib/apt/lists/* && echo "alias ls='ls --color=auto'" >> $HOME/.bashrc
+RUN apt-get update && apt-get install -y procps net-tools telnet default-mysql-client redis-tools vim git unzip jq bc iproute2 vnstat curl && rm -rf /var/lib/apt/lists/* && echo "alias ls='ls --color=auto'" >> $HOME/.bashrc
 
 COPY requirements.txt .
 

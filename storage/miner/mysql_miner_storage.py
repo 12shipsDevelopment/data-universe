@@ -64,9 +64,9 @@ class MySQLMinerStorage(MinerStorage):
             'charset': 'utf8mb4',
             'use_pure': True,
             'converter_class': UTCDateTimeConverter,
-            "connect_timeout": os.environ.get("DB_CONNECT_TIMEOUT", 10),
-            "read_timeout": os.environ.get("DB_READ_TIMEOUT", 60),
-            "write_timeout": os.environ.get("DB_WRITE_TIMEOUT", 60),
+            "connect_timeout": int(os.environ.get("DB_CONNECT_TIMEOUT", 10)),
+            "read_timeout": int(os.environ.get("DB_READ_TIMEOUT", 60)),
+            "write_timeout": int(os.environ.get("DB_WRITE_TIMEOUT", 60)),
         }
 
         self.pool = pooling.MySQLConnectionPool(

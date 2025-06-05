@@ -71,7 +71,7 @@ class MySQLMinerStorage(MinerStorage):
 
         self.pool = pooling.MySQLConnectionPool(
             pool_name="mypool",
-            pool_size=10,
+            pool_size=int(os.environ.get("DB_POOL_SIZE", 10)),
             pool_reset_session=True,
             **self.connection_config,
         )

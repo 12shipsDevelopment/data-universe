@@ -67,7 +67,6 @@ class MySQLMinerStorage(MinerStorage):
             "connect_timeout": os.environ.get("DB_CONNECT_TIMEOUT", 10),
             "read_timeout": os.environ.get("DB_READ_TIMEOUT", 60),
             "write_timeout": os.environ.get("DB_WRITE_TIMEOUT", 60),
-            "pool_timeout": os.environ.get("DB_POOL_TIMEOUT", 10),
         }
 
         self.pool = pooling.MySQLConnectionPool(

@@ -1,4 +1,6 @@
 import mysql.connector
+from mysql.connector import pooling
+import os
 import threading
 import contextlib
 import datetime as dt
@@ -62,20 +64,29 @@ class MySQLMinerStorage(MinerStorage):
             'charset': 'utf8mb4',
             'use_pure': True,
             'converter_class': UTCDateTimeConverter,
+            "connect_timeout": os.environ.get("DB_CONNECT_TIMEOUT", 10),
+            "read_timeout": os.environ.get("DB_READ_TIMEOUT", 60),
+            "write_timeout": os.environ.get("DB_WRITE_TIMEOUT", 60),
         }
+
+        self.pool = pooling.MySQLConnectionPool(
+            pool_name="mypool",
+            pool_size=10,
+            pool_reset_session=True,
+            **self.connection_config,
+        )
 
         self.database_max_content_size_bytes = utils.gb_to_bytes(
             max_database_size_gb_hint
         )
 
         with contextlib.closing(self._create_connection()) as connection:
-            cursor = connection.cursor()
+            with contextlib.closing(connection.cursor()) as cursor:
+                # Create the DataEntity table (if it does not already exist).
+                cursor.execute(MySQLMinerStorage.DATA_ENTITY_TABLE_CREATE)
 
-            # Create the DataEntity table (if it does not already exist).
-            cursor.execute(MySQLMinerStorage.DATA_ENTITY_TABLE_CREATE)
-
-            # Create the huggingface table to store HF Info
-            cursor.execute(MySQLMinerStorage.HF_METADATA_TABLE_CREATE)
+                # Create the huggingface table to store HF Info
+                cursor.execute(MySQLMinerStorage.HF_METADATA_TABLE_CREATE)
 
         # Update the HFMetaData for miners who created this table in previous versions
         self._ensure_hf_metadata_schema()
@@ -91,9 +102,10 @@ class MySQLMinerStorage(MinerStorage):
         self.cached_index_updated = dt.datetime.min
 
     def _create_connection(self):
-        conn = mysql.connector.connect(**self.connection_config)
+        # conn = mysql.connector.connect(**self.connection_config)
 
-        return conn
+        # return conn
+        return self.pool.get_connection()
 
     def _ensure_hf_metadata_schema(self):
         print("Ensuring HF metadata schema...")
@@ -133,7 +145,7 @@ class MySQLMinerStorage(MinerStorage):
             # Ensure only one thread is clearing space when necessary.
             # with self.clearing_space_lock:
                 # If we would exceed our maximum configured stored content size then clear space.
-            cursor = connection.cursor()
+            with contextlib.closing(connection.cursor()) as cursor:
                 # cursor.execute("SELECT SUM(contentSizeBytes) FROM DataEntity")
 
                 # # If there are no rows we convert the None result to 0
@@ -156,48 +168,48 @@ class MySQLMinerStorage(MinerStorage):
                 #     self.clear_content_from_oldest(content_bytes_to_clear)
 
             # Parse every DataEntity into an list of value lists for inserting.
-            values = []
+                values = []
 
-            for data_entity in data_entities:
-                label = (
-                    "NULL" if (data_entity.label is None) else data_entity.label.value
-                )
-                time_bucket_id = TimeBucket.from_datetime(data_entity.datetime).id
-                values.append(
-                    [
-                        data_entity.uri,
-                        data_entity.datetime,
-                        time_bucket_id,
-                        data_entity.source,
-                        label,
-                        data_entity.content,
-                        data_entity.content_size_bytes,
-                    ]
-                )
+                for data_entity in data_entities:
+                    label = (
+                        "NULL" if (data_entity.label is None) else data_entity.label.value
+                    )
+                    time_bucket_id = TimeBucket.from_datetime(data_entity.datetime).id
+                    values.append(
+                        [
+                            data_entity.uri,
+                            data_entity.datetime,
+                            time_bucket_id,
+                            data_entity.source,
+                            label,
+                            data_entity.content,
+                            data_entity.content_size_bytes,
+                        ]
+                    )
 
-            # Insert overwriting duplicate keys (in case of updated content).
-            cursor.executemany("INSERT IGNORE INTO DataEntity VALUES (%s,%s,%s,%s,%s,%s,%s)", values)
+                # Insert overwriting duplicate keys (in case of updated content).
+                cursor.executemany("INSERT IGNORE INTO DataEntity VALUES (%s,%s,%s,%s,%s,%s,%s)", values)
 
-            # Commit the insert.
-            connection.commit()
+                # Commit the insert.
+                connection.commit()
 
     def store_hf_dataset_info(self, hf_metadatas: List[HuggingFaceMetadata]):
         with contextlib.closing(self._create_connection()) as connection:
-            cursor = connection.cursor()
-            values = [
-                (
-                    hf_metadata.repo_name,
-                    hf_metadata.source,
-                    hf_metadata.updated_at,
-                    getattr(hf_metadata, 'encoding_key', None)
-                )
-                for hf_metadata in hf_metadatas
-            ]
+            with contextlib.closing(connection.cursor()) as cursor:
+                values = [
+                    (
+                        hf_metadata.repo_name,
+                        hf_metadata.source,
+                        hf_metadata.updated_at,
+                        getattr(hf_metadata, 'encoding_key', None)
+                    )
+                    for hf_metadata in hf_metadatas
+                ]
 
-            cursor.executemany(
-                "REPLACE INTO HFMetaData (uri, source, updatedAt, encodingKey) VALUES (%s,%s,%s,%s)", values)
+                cursor.executemany(
+                    "REPLACE INTO HFMetaData (uri, source, updatedAt, encodingKey) VALUES (%s,%s,%s,%s)", values)
 
-            connection.commit()
+                connection.commit()
 
     def get_earliest_data_datetime(self, source):
         query = "SELECT MIN(datetime) as earliest_date FROM DataEntity WHERE source = %s"
@@ -281,47 +293,47 @@ class MySQLMinerStorage(MinerStorage):
         )
 
         with contextlib.closing(self._create_connection()) as connection:
-            cursor = connection.cursor()
-            cursor.execute(
-                """SELECT * FROM DataEntity 
-                        WHERE timeBucketId = %s AND label = %s AND source = %s""",
-                [
-                    data_entity_bucket_id.time_bucket.id,
-                    label,
-                    data_entity_bucket_id.source,
-                ],
-            )
+            with contextlib.closing(connection.cursor()) as cursor:
+                cursor.execute(
+                    """SELECT * FROM DataEntity 
+                            WHERE timeBucketId = %s AND label = %s AND source = %s""",
+                    [
+                        data_entity_bucket_id.time_bucket.id,
+                        label,
+                        data_entity_bucket_id.source,
+                    ],
+                )
 
-            # Convert the rows into DataEntity objects and return them up to the configured max chuck size.
-            data_entities = []
+                # Convert the rows into DataEntity objects and return them up to the configured max chuck size.
+                data_entities = []
 
-            running_size = 0
+                running_size = 0
 
-            for row in cursor:
-                # If we have already reached the max DataEntityBucket size instead return early.
-                if running_size >= constants.DATA_ENTITY_BUCKET_SIZE_LIMIT_BYTES:
-                    return data_entities
-                else:
-                    # Construct the new DataEntity with all non null columns.
-                    data_entity = DataEntity(
-                        uri=row[0],
-                        datetime=row[1].replace(tzinfo=dt.timezone.utc),
-                        source=DataSource(row[3]),
-                        content=row[5],
-                        content_size_bytes=row[6],
-                        label=DataLabel(value=row[4]) if row[4] != "NULL" else None
-                    )
-                    bt.logging.info( 
-                        f"Adding data entity {data_entity} to bucket {data_entity_bucket_id}"
-                    )
-                    data_entities.append(data_entity)
-                    running_size += row[6]
+                for row in cursor:
+                    # If we have already reached the max DataEntityBucket size instead return early.
+                    if running_size >= constants.DATA_ENTITY_BUCKET_SIZE_LIMIT_BYTES:
+                        return data_entities
+                    else:
+                        # Construct the new DataEntity with all non null columns.
+                        data_entity = DataEntity(
+                            uri=row[0],
+                            datetime=row[1].replace(tzinfo=dt.timezone.utc),
+                            source=DataSource(row[3]),
+                            content=row[5],
+                            content_size_bytes=row[6],
+                            label=DataLabel(value=row[4]) if row[4] != "NULL" else None
+                        )
+                        bt.logging.info( 
+                            f"Adding data entity {data_entity} to bucket {data_entity_bucket_id}"
+                        )
+                        data_entities.append(data_entity)
+                        running_size += row[6]
 
-            # If we reach the end of the cursor then return all of the data entities for this DataEntityBucket.
-            bt.logging.trace(
-                f"Returning {len(data_entities)} data entities for bucket {data_entity_bucket_id}"
-            )
-            return data_entities
+                # If we reach the end of the cursor then return all of the data entities for this DataEntityBucket.
+                bt.logging.trace(
+                    f"Returning {len(data_entities)} data entities for bucket {data_entity_bucket_id}"
+                )
+                return data_entities
 
     def refresh_compressed_index(self, time_delta: dt.timedelta):
         """Refreshes the compressed MinerIndex."""
@@ -352,67 +364,66 @@ class MySQLMinerStorage(MinerStorage):
                     return
 
             with contextlib.closing(self._create_connection()) as connection:
-                cursor = connection.cursor()
+                with contextlib.closing(connection.cursor()) as cursor:
+                    oldest_time_bucket_id = TimeBucket.from_datetime(
+                        dt.datetime.now()
+                        - dt.timedelta(constants.DATA_ENTITY_BUCKET_AGE_LIMIT_DAYS)
+                    ).id
 
-                oldest_time_bucket_id = TimeBucket.from_datetime(
-                    dt.datetime.now()
-                    - dt.timedelta(constants.DATA_ENTITY_BUCKET_AGE_LIMIT_DAYS)
-                ).id
-
-                # Get sum of content_size_bytes for all rows grouped by DataEntityBucket.
-                cursor.execute(
-                    """SELECT SUM(contentSizeBytes) AS bucketSize, timeBucketId, source, label FROM DataEntity
-                            WHERE timeBucketId >= %s
-                            GROUP BY timeBucketId, label, source
-                            ORDER BY bucketSize DESC
-                            LIMIT %s
-                            """,
-                    [
-                        oldest_time_bucket_id,
-                        constants.DATA_ENTITY_BUCKET_COUNT_LIMIT_PER_MINER_INDEX_PROTOCOL_4,
-                    ],  # Always get the max for caching and truncate to each necessary size.
-                )
-
-                buckets_by_source_by_label = defaultdict(dict)
-
-                for row in cursor:
-                    # Ensure the miner does not attempt to report more than the max DataEntityBucket size.
-                    size = (
-                        constants.DATA_ENTITY_BUCKET_SIZE_LIMIT_BYTES
-                        if row[0]
-                        >= constants.DATA_ENTITY_BUCKET_SIZE_LIMIT_BYTES
-                        else row[0]
+                    # Get sum of content_size_bytes for all rows grouped by DataEntityBucket.
+                    cursor.execute(
+                        """SELECT SUM(contentSizeBytes) AS bucketSize, timeBucketId, source, label FROM DataEntity
+                                WHERE timeBucketId >= %s
+                                GROUP BY timeBucketId, label, source
+                                ORDER BY bucketSize DESC
+                                LIMIT %s
+                                """,
+                        [
+                            oldest_time_bucket_id,
+                            constants.DATA_ENTITY_BUCKET_COUNT_LIMIT_PER_MINER_INDEX_PROTOCOL_4,
+                        ],  # Always get the max for caching and truncate to each necessary size.
                     )
 
-                    label = row[3] if row[3] != "NULL" else None
+                    buckets_by_source_by_label = defaultdict(dict)
 
-                    bucket = buckets_by_source_by_label[DataSource(row[2])].get(
-                        label, CompressedEntityBucket(label=label)
-                    )
-                    bucket.sizes_bytes.append(size)
-                    bucket.time_bucket_ids.append(row[1])
-                    buckets_by_source_by_label[DataSource(row[2])][
-                        label
-                    ] = bucket
+                    for row in cursor:
+                        # Ensure the miner does not attempt to report more than the max DataEntityBucket size.
+                        size = (
+                            constants.DATA_ENTITY_BUCKET_SIZE_LIMIT_BYTES
+                            if row[0]
+                            >= constants.DATA_ENTITY_BUCKET_SIZE_LIMIT_BYTES
+                            else row[0]
+                        )
 
-                end = dt.datetime.now()
-                bt.logging.info(
-                    f"Compressed index refresh took {(end - start).total_seconds():.2f} seconds."
-                )
-                # Convert the buckets_by_source_by_label into a list of lists of CompressedEntityBucket and return
-                bt.logging.trace("Creating protocol 4 cached index.")
-                with self.cached_index_lock:
-                    self.cached_index_4 = CompressedMinerIndex(
-                        sources={
-                            source: list(labels_to_buckets.values())
-                            for source, labels_to_buckets in buckets_by_source_by_label.items()
-                        }
+                        label = row[3] if row[3] != "NULL" else None
+
+                        bucket = buckets_by_source_by_label[DataSource(row[2])].get(
+                            label, CompressedEntityBucket(label=label)
+                        )
+                        bucket.sizes_bytes.append(size)
+                        bucket.time_bucket_ids.append(row[1])
+                        buckets_by_source_by_label[DataSource(row[2])][
+                            label
+                        ] = bucket
+
+                    end = dt.datetime.now()
+                    bt.logging.info(
+                        f"Compressed index refresh took {(end - start).total_seconds():.2f} seconds."
                     )
-                    self.cached_index_updated = dt.datetime.now()
-                    bt.logging.success(
-                        f"Created cached index of {CompressedMinerIndex.size_bytes(self.cached_index_4)} bytes "
-                        + f"across {CompressedMinerIndex.bucket_count(self.cached_index_4)} buckets."
-                    )
+                    # Convert the buckets_by_source_by_label into a list of lists of CompressedEntityBucket and return
+                    bt.logging.trace("Creating protocol 4 cached index.")
+                    with self.cached_index_lock:
+                        self.cached_index_4 = CompressedMinerIndex(
+                            sources={
+                                source: list(labels_to_buckets.values())
+                                for source, labels_to_buckets in buckets_by_source_by_label.items()
+                            }
+                        )
+                        self.cached_index_updated = dt.datetime.now()
+                        bt.logging.success(
+                            f"Created cached index of {CompressedMinerIndex.size_bytes(self.cached_index_4)} bytes "
+                            + f"across {CompressedMinerIndex.bucket_count(self.cached_index_4)} buckets."
+                        )
 
     def list_contents_in_data_entity_buckets(
         self, data_entity_bucket_ids: List[DataEntityBucketId]
@@ -441,38 +452,38 @@ class MySQLMinerStorage(MinerStorage):
             time_bucket_ids_and_labels.append(label)
 
         with contextlib.closing(self._create_connection()) as connection:
-            cursor = connection.cursor()
-            conditions = ["(timeBucketId = %s AND label = %s)"] * len(data_entity_bucket_ids)
-            query = (
-                "SELECT timeBucketId, source, label, content, contentSizeBytes FROM DataEntity "
-                f"WHERE {' OR '.join(conditions)} LIMIT %s"
-            )
-            cursor.execute(
-                query,
-                list(time_bucket_ids_and_labels)
-                + [constants.BULK_CONTENTS_COUNT_LIMIT],
-            )
+            with contextlib.closing(connection.cursor()) as cursor:
+                conditions = ["(timeBucketId = %s AND label = %s)"] * len(data_entity_bucket_ids)
+                query = (
+                    "SELECT timeBucketId, source, label, content, contentSizeBytes FROM DataEntity "
+                    f"WHERE {' OR '.join(conditions)} LIMIT %s"
+                )
+                cursor.execute(
+                    query,
+                    list(time_bucket_ids_and_labels)
+                    + [constants.BULK_CONTENTS_COUNT_LIMIT],
+                )
 
-            # Get the contents from each row and return them up to the configured max size.
-            buckets_ids_to_contents = defaultdict(list)
-            running_size = 0
+                # Get the contents from each row and return them up to the configured max size.
+                buckets_ids_to_contents = defaultdict(list)
+                running_size = 0
 
-            for row in cursor:
-                if running_size < constants.BULK_CONTENTS_SIZE_LIMIT_BYTES:
-                    data_entity_bucket_id = DataEntityBucketId(
-                        time_bucket=TimeBucket(id=row[0]),
-                        source=DataSource(row[1]),
-                        label=DataLabel(value=row[2]) if row[2] != "NULL" else None
-                    )
-                    buckets_ids_to_contents[data_entity_bucket_id].append(
-                        row[3]
-                    )
-                    running_size += row[4]
-                else:
-                    # Return early since we hit the size limit.
-                    break
+                for row in cursor:
+                    if running_size < constants.BULK_CONTENTS_SIZE_LIMIT_BYTES:
+                        data_entity_bucket_id = DataEntityBucketId(
+                            time_bucket=TimeBucket(id=row[0]),
+                            source=DataSource(row[1]),
+                            label=DataLabel(value=row[2]) if row[2] != "NULL" else None
+                        )
+                        buckets_ids_to_contents[data_entity_bucket_id].append(
+                            row[3]
+                        )
+                        running_size += row[4]
+                    else:
+                        # Return early since we hit the size limit.
+                        break
 
-            return buckets_ids_to_contents
+                return buckets_ids_to_contents
 
     def get_compressed_index(
         self,
@@ -495,89 +506,88 @@ class MySQLMinerStorage(MinerStorage):
         bt.logging.debug(f"Database full. Clearing {content_bytes_to_clear} bytes.")
 
         with contextlib.closing(self._create_connection()) as connection:
-            cursor = connection.cursor()
+            with contextlib.closing(connection.cursor()) as cursor:
+                # TODO Investigate way to select last X bytes worth of entries in a single query.
+                # Get the contentSizeBytes of each row by timestamp desc.
+                cursor.execute(
+                    "SELECT contentSizeBytes, datetime, uri FROM DataEntity ORDER BY datetime ASC"
+                )
 
-            # TODO Investigate way to select last X bytes worth of entries in a single query.
-            # Get the contentSizeBytes of each row by timestamp desc.
-            cursor.execute(
-                "SELECT contentSizeBytes, datetime, uri FROM DataEntity ORDER BY datetime ASC"
-            )
+                running_bytes = 0
+                earliest_datetime_to_clear = dt.datetime.min
+                sqls = []
+                last_uri = ''
+                # Iterate over rows until we have found bytes to clear or we reach the end and fail.
+                for row in cursor:
+                    running_bytes += row[0]
+                    earliest_datetime_to_clear = row[1]
+                    # Once we have enough content to clear then we do so.
+                    print(f"running_bytes: {running_bytes}")
+                    if running_bytes > content_bytes_to_clear:
+                        sqls.append(f"DELETE FROM DataEntity WHERE uri = '{last_uri}' AND datetime <= '{earliest_datetime_to_clear}'")
+                    else:
+                        last_uri = row[2]
 
-            running_bytes = 0
-            earliest_datetime_to_clear = dt.datetime.min
-            sqls = []
-            last_uri = ''
-            # Iterate over rows until we have found bytes to clear or we reach the end and fail.
-            for row in cursor:
-                running_bytes += row[0]
-                earliest_datetime_to_clear = row[1]
-                # Once we have enough content to clear then we do so.
-                print(f"running_bytes: {running_bytes}")
-                if running_bytes > content_bytes_to_clear:
-                    sqls.append(f"DELETE FROM DataEntity WHERE uri = '{last_uri}' AND datetime <= '{earliest_datetime_to_clear}'")
-                else:
-                    last_uri = row[2]
-
-            for sql in sqls:
-                print(sql)
-                cursor.execute(sql)
-            
-            if len(sqls) > 0:
-                connection.commit()
+                for sql in sqls:
+                    print(sql)
+                    cursor.execute(sql)
+                
+                if len(sqls) > 0:
+                    connection.commit()
 
     def list_data_entity_buckets(self) -> List[DataEntityBucket]:
         """Lists all DataEntityBuckets for all the DataEntities that this MinerStorage is currently serving."""
 
         with contextlib.closing(self._create_connection()) as connection:
-            cursor = connection.cursor()
-            oldest_time_bucket_id = TimeBucket.from_datetime(
-                dt.datetime.now()
-                - dt.timedelta(constants.DATA_ENTITY_BUCKET_AGE_LIMIT_DAYS)
-            ).id
-            # Get sum of content_size_bytes for all rows grouped by DataEntityBucket.
-            cursor.execute(
-                """SELECT SUM(contentSizeBytes) AS bucketSize, timeBucketId, source, label FROM DataEntity
-                        WHERE timeBucketId >= %s
-                        GROUP BY timeBucketId, label, source
-                        ORDER BY bucketSize DESC
-                        LIMIT %s
-                        """,
-                [
-                    oldest_time_bucket_id,
-                    constants.DATA_ENTITY_BUCKET_COUNT_LIMIT_PER_MINER_INDEX,
-                ],
-            )
-
-            data_entity_buckets = []
-
-            for row in cursor:
-                # Ensure the miner does not attempt to report more than the max DataEntityBucket size.
-                size = (
-                    constants.DATA_ENTITY_BUCKET_SIZE_LIMIT_BYTES
-                    if row[0]
-                    >= constants.DATA_ENTITY_BUCKET_SIZE_LIMIT_BYTES
-                    else row[0]
+            with contextlib.closing(connection.cursor()) as cursor:
+                oldest_time_bucket_id = TimeBucket.from_datetime(
+                    dt.datetime.now()
+                    - dt.timedelta(constants.DATA_ENTITY_BUCKET_AGE_LIMIT_DAYS)
+                ).id
+                # Get sum of content_size_bytes for all rows grouped by DataEntityBucket.
+                cursor.execute(
+                    """SELECT SUM(contentSizeBytes) AS bucketSize, timeBucketId, source, label FROM DataEntity
+                            WHERE timeBucketId >= %s
+                            GROUP BY timeBucketId, label, source
+                            ORDER BY bucketSize DESC
+                            LIMIT %s
+                            """,
+                    [
+                        oldest_time_bucket_id,
+                        constants.DATA_ENTITY_BUCKET_COUNT_LIMIT_PER_MINER_INDEX,
+                    ],
                 )
 
-                # Construct the new DataEntityBucket with all non null columns.
-                data_entity_bucket_id = DataEntityBucketId(
-                    time_bucket=TimeBucket(id=row[1]),
-                    source=DataSource(row[2]),
-                    label=(
-                        DataLabel(value=row[3])
-                        if row[3] != "NULL"
-                        else None
-                    ),
-                )
+                data_entity_buckets = []
 
-                data_entity_bucket = DataEntityBucket(
-                    id=data_entity_bucket_id, size_bytes=size
-                )
+                for row in cursor:
+                    # Ensure the miner does not attempt to report more than the max DataEntityBucket size.
+                    size = (
+                        constants.DATA_ENTITY_BUCKET_SIZE_LIMIT_BYTES
+                        if row[0]
+                        >= constants.DATA_ENTITY_BUCKET_SIZE_LIMIT_BYTES
+                        else row[0]
+                    )
 
-                data_entity_buckets.append(data_entity_bucket)
+                    # Construct the new DataEntityBucket with all non null columns.
+                    data_entity_bucket_id = DataEntityBucketId(
+                        time_bucket=TimeBucket(id=row[1]),
+                        source=DataSource(row[2]),
+                        label=(
+                            DataLabel(value=row[3])
+                            if row[3] != "NULL"
+                            else None
+                        ),
+                    )
 
-            # If we reach the end of the cursor then return all of the data entity buckets.
-            return data_entity_buckets
+                    data_entity_bucket = DataEntityBucket(
+                        id=data_entity_bucket_id, size_bytes=size
+                    )
+
+                    data_entity_buckets.append(data_entity_bucket)
+
+                # If we reach the end of the cursor then return all of the data entity buckets.
+                return data_entity_buckets
 
     def get_total_size_of_data_entities_in_bucket(
             self, data_entity_bucket_id: DataEntityBucketId
@@ -591,19 +601,19 @@ class MySQLMinerStorage(MinerStorage):
             )
 
             with contextlib.closing(self._create_connection()) as connection:
-                cursor = connection.cursor()
-                cursor.execute(
-                    """SELECT SUM(contentSizeBytes) FROM DataEntity 
-                            WHERE timeBucketId = %s AND label = %s AND source = %s""",
-                    [
-                        data_entity_bucket_id.time_bucket.id,
-                        label,
-                        data_entity_bucket_id.source,
-                    ],
-                )
+                with contextlib.closing(connection.cursor()) as cursor:
+                    cursor.execute(
+                        """SELECT SUM(contentSizeBytes) FROM DataEntity 
+                                WHERE timeBucketId = %s AND label = %s AND source = %s""",
+                        [
+                            data_entity_bucket_id.time_bucket.id,
+                            label,
+                            data_entity_bucket_id.source,
+                        ],
+                    )
 
-                # Get the sum result
-                total_size = cursor.fetchone()[0]
-                
-                # If there are no matching rows, SUM will return NULL which becomes None in Python
-                return total_size if total_size is not None else 0
+                    # Get the sum result
+                    total_size = cursor.fetchone()[0]
+                    
+                    # If there are no matching rows, SUM will return NULL which becomes None in Python
+                    return total_size if total_size is not None else 0

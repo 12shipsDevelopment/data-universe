@@ -25,6 +25,7 @@ import typing
 import os
 import bittensor as bt
 import datetime as dt
+import signal
 from common import constants, utils
 from common.data import CompressedMinerIndex, TimeBucket
 from common.protocol import (
@@ -181,10 +182,14 @@ class Miner:
         )
         bt.logging.success(f"Loaded scraping config: {scraping_config}.")
 
+        self.shutdown_event = threading.Event()
+        signal.signal(signal.SIGINT, self._handle_signal)
+        signal.signal(signal.SIGTERM, self._handle_signal)
         self.scraping_coordinator = ScraperCoordinator(
             scraper_provider=ScraperProvider(),
             miner_storage=self.storage,
             config=scraping_config,
+            shutdown_event = self.shutdown_event
         )
 
         # Configure per hotkey per request limits.
@@ -336,6 +341,11 @@ class Miner:
             # In case of unforeseen errors, the miner will log the error and continue operations.
             except Exception as e:
                 bt.logging.error(traceback.format_exc())
+
+    def _handle_signal(self, signum, frame):
+        """主线程信号处理器"""
+        print(f"Received signal {signum}, shutting down...")
+        self.shutdown_event.set()  # 通知子线程退出
 
     def run_in_background_thread(self):
         """

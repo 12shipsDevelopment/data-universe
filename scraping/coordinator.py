@@ -188,6 +188,7 @@ class ScraperCoordinator:
         scraper_provider: ScraperProvider,
         miner_storage: MinerStorage,
         config: CoordinatorConfig,
+        shutdown_event: threading.Event
     ):
         self.provider = scraper_provider
         self.storage = miner_storage
@@ -197,6 +198,9 @@ class ScraperCoordinator:
         self.max_workers = 10
         self.is_running = False
         self.queue = asyncio.Queue()
+        
+        self.shutdown_event = shutdown_event
+
 
     def run_in_background_thread(self):
         """
@@ -243,17 +247,8 @@ class ScraperCoordinator:
                 schedule_task = asyncio.create_task(self.schedule_realtime_task(scheduler))
                 workers.append(schedule_task)
 
-            shutdown_event = asyncio.Event()
-            # 设置信号处理
-            loop = asyncio.get_running_loop()
-            for sig in (signal.SIGTERM, signal.SIGINT):
-                loop.add_signal_handler(
-                    sig,
-                    lambda: shutdown_event.set()
-                )
-
             for i in range(int(os.environ.get("NULL_PARALLEL", "20"))):
-                null_task = asyncio.create_task(self.null_scraping_task(scheduler,shutdown_event))
+                null_task = asyncio.create_task(self.null_scraping_task(scheduler,self.shutdown_event))
                 workers.append(null_task)
 
         while self.is_running:
@@ -355,7 +350,7 @@ class ScraperCoordinator:
             except Exception as e:
                 bt.logging.error("Trends : " + traceback.format_exc())
 
-    async def null_scraping_task(self, scheduler: NullScheduler, shutdown_event: asyncio.Event):
+    async def null_scraping_task(self, scheduler: NullScheduler, shutdown_event: threading.Event):
         """Runs periodic null bucket scraping tasks using timebuckets."""
         bt.logging.info("Starting null scraping tasks...")
         await asyncio.sleep(5)

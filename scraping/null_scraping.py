@@ -9,7 +9,6 @@ from common.data import DataEntity,TimeBucket
 from storage.miner.miner_storage import MinerStorage
 from common.date_range import DateRange
 import bittensor as bt
-import signal
 from scraping.null_scheduler import NullScheduler
 class SizeAwareQueue:
     """Thread-safe queue with size tracking"""
@@ -52,20 +51,21 @@ class NullScraper:
     def __init__(
         self,
         storage: MinerStorage,
-        scheduler: NullScheduler
+        scheduler: NullScheduler,
+        shutdown_event: asyncio.Event
     ):
 
         self.storage = storage
         self.scheduler = scheduler
         
-        # 设置信号处理
-        loop = asyncio.get_running_loop()
-        for sig in (signal.SIGTERM, signal.SIGINT):
-            loop.add_signal_handler(
-                sig,
-                lambda: asyncio.create_task(self.handle_shutdown())
-            )
+        self._shutdown_event = shutdown_event
+        
+        asyncio.create_task(self._watch_shutdown())
+        print("init null scraper")
 
+    async def _watch_shutdown(self):
+        await self._shutdown_event.wait()
+        await self.handle_shutdown()
 
 
     def generate_current_hour_query(self, base_query, date_range: DateRange):
@@ -221,7 +221,7 @@ class NullScraper:
         
         if hasattr(self, '_current_task'):
             # 保存当前任务状态回调度器
-            bt.logging.info(f"Saved current task state: {self._current_task}")
+            print(f"Saved current task state: {self._current_task}")
             self.scheduler.add_task(self._current_task, left=False)
         
         # 设置运行标志为False以退出循环

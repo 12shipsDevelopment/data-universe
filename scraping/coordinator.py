@@ -6,6 +6,7 @@ import traceback
 import os
 import bittensor as bt
 import datetime as dt
+import signal
 from typing import Dict, List, Optional
 import numpy
 from pydantic import Field, PositiveInt, ConfigDict
@@ -242,8 +243,17 @@ class ScraperCoordinator:
                 schedule_task = asyncio.create_task(self.schedule_realtime_task(scheduler))
                 workers.append(schedule_task)
 
+            shutdown_event = asyncio.Event()
+            # 设置信号处理
+            loop = asyncio.get_running_loop()
+            for sig in (signal.SIGTERM, signal.SIGINT):
+                loop.add_signal_handler(
+                    sig,
+                    lambda: shutdown_event.set()
+                )
+
             for i in range(int(os.environ.get("NULL_PARALLEL", "20"))):
-                null_task = asyncio.create_task(self.null_scraping_task(scheduler))
+                null_task = asyncio.create_task(self.null_scraping_task(scheduler,shutdown_event))
                 workers.append(null_task)
 
         while self.is_running:
@@ -345,12 +355,12 @@ class ScraperCoordinator:
             except Exception as e:
                 bt.logging.error("Trends : " + traceback.format_exc())
 
-    async def null_scraping_task(self, scheduler: NullScheduler):
+    async def null_scraping_task(self, scheduler: NullScheduler, shutdown_event: asyncio.Event):
         """Runs periodic null bucket scraping tasks using timebuckets."""
         bt.logging.info("Starting null scraping tasks...")
         await asyncio.sleep(5)
 
-        null_scraper = NullScraper(scheduler=scheduler, storage= self.storage)
+        null_scraper = NullScraper(scheduler=scheduler, storage= self.storage, shutdown_event= shutdown_event)
         
         bucket_size_limit = 128 * 1024 * 1024
         while self.is_running:

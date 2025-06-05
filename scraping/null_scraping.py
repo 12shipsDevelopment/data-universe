@@ -67,11 +67,11 @@ class NullScraper:
     async def _watch_shutdown(self):
         while not self._shutdown_event.is_set():
             try:
-                # 你的任务逻辑...
-                await self.handle_shutdown()
                 await asyncio.sleep(1)
             except Exception as e:
                 print(f"Error: {e}")
+        
+        await self.handle_shutdown()
 
 
     def generate_current_hour_query(self, base_query, date_range: DateRange):
@@ -232,4 +232,5 @@ class NullScraper:
         
         # 设置运行标志为False以退出循环
         self.stop_event.set()
+        return True
         

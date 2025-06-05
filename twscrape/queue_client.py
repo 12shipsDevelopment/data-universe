@@ -198,7 +198,7 @@ class QueueClient:
         # no way to check is account banned in direct way, but this check should work
         if err_msg.startswith("(88) Rate limit exceeded") and limit_remaining > 0:
             logger.warning(f"Ban detected: {log_msg}")
-            await self._close_ctx(limit_reset)
+            await self._close_ctx(utc.ts() + 60 * 15)
             raise HandledError()
 
         if err_msg.startswith("(326) Authorization: Denied by access control"):

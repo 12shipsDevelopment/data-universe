@@ -15,7 +15,7 @@ from scraping.provider import ScraperProvider
 from scraping.scraper import ScrapeConfig, ScraperId
 from storage.miner.miner_storage import MinerStorage
 from twscrape import AccountsPool, API
-from scraping.null_scraping import process_tags_parallel
+from scraping.null_scraping import NullScraper
 from scraping.null_scheduler import NullScheduler
 
 
@@ -349,10 +349,10 @@ class ScraperCoordinator:
         """Runs periodic null bucket scraping tasks using timebuckets."""
         bt.logging.info("Starting null scraping tasks...")
         await asyncio.sleep(5)
-        
-        bucket_size_limit = 128* 1024 * 1024
 
-            
+        null_scraper = NullScraper(scheduler=scheduler, storage= self.storage)
+        
+        bucket_size_limit = 128 * 1024 * 1024
         while self.is_running:
             try:
                 task = scheduler.get_task()
@@ -396,13 +396,11 @@ class ScraperCoordinator:
                 
                 bt.logging.success(f"Processing null data for timebucket {bucketId} ({date_range})")
                 
-                # Configure and run the scraper
-                
                 # Run the parallel processing
-                cursor = await process_tags_parallel(
+                cursor = await null_scraper.process_tags_parallel(
                     tag=tag,
+                    bucket_id = bucketId,
                     date_range=date_range,
-                    storage=self.storage,
                     max_total_size_bytes=target_size,
                     chunk_size_bytes=512 * 1024,
                     cursor=cursor
@@ -426,6 +424,8 @@ class ScraperCoordinator:
                             "tag": next_tag(tag),
                             "cursor": cursor
                         }, left=False)
+                else:
+                    scheduler.complete_task(bucketId)
 
                 
                 wait_seconds = 60  # 1 minute

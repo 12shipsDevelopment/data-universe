@@ -129,6 +129,19 @@ class MinerScorer:
             self.scorable_bytes = torch.cat(
                 [self.scorable_bytes, torch.zeros(to_add, dtype=torch.float32)]
             )
+            self.hf_boosts = torch.cat(
+                [self.hf_boosts, torch.zeros(to_add, dtype=torch.float32)]
+            )
+            self.hf_credibility = torch.cat(
+                [
+                    self.hf_credibility,
+                    torch.full(
+                        (to_add, 1),
+                        MinerScorer.STARTING_HF_CREDIBILITY,
+                        dtype=torch.float32,
+                    ),
+                ]
+            )
 
     def update_hf_boost_and_cred(self, uid: int, hf_vali_percentage: float) -> None:
         """Applies a fixed boost to the scaled score if the miner has passed HF validation."""
@@ -138,6 +151,12 @@ class MinerScorer:
         bt.logging.info(
             f"After HF evaluation for miner {uid}: Raw HF Boost = {float(self.hf_boosts[uid])}. HF Credibility = {float(self.hf_credibility[uid])}."
         )
+
+    def apply_ondemand_penalty(self, uid: int):
+        """Applies a 5% credibility penalty to a given miner"""
+        adj_cred = max(self.miner_credibility[uid] - 0.05, 0)
+        bt.logging.info(f"After 5% OnDemand penalty, Miner {uid} credibility decreased from {self.miner_credibility[uid]} to {adj_cred}.")
+        self.miner_credibility[uid] = adj_cred
 
     def on_miner_evaluated(
         self,

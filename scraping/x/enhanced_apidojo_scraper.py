@@ -324,9 +324,7 @@ class EnhancedApiDojoTwitterScraper(ApiDojoTwitterScraper):
             try:
                 # Debug the structure of the data
                 if 'media' in data:
-                    bt.logging.debug(f"Media structure: {type(data['media'])}")
                     if isinstance(data['media'], list) and data['media']:
-                        bt.logging.debug(f"First media item: {type(data['media'][0])}")
                         if isinstance(data['media'][0], str):
                             # Fix for string media items: convert to dict format expected by from_apify_response
                             fixed_media = []
@@ -356,7 +354,6 @@ class EnhancedApiDojoTwitterScraper(ApiDojoTwitterScraper):
                 # Extract conversation and reply data
                 conversation_id = data.get('conversationId')
                 in_reply_to_user_id = data.get('inReplyToUserId')
-                in_reply_to_username = data.get('inReplyToUsername')
 
                 # Extract hashtags and media
                 hashtags = []
@@ -407,15 +404,6 @@ class EnhancedApiDojoTwitterScraper(ApiDojoTwitterScraper):
                             media_urls.append(media_item)
                             media_types.append('photo')
 
-                # Handle extended entities media if present
-                if 'extendedEntities' in data and 'media' in data['extendedEntities']:
-                    for media_item in data['extendedEntities']['media']:
-                        if isinstance(media_item, dict):
-                            media_url = media_item.get('media_url_https')
-                            if media_url and media_url not in media_urls:  # Avoid duplicates
-                                media_urls.append(media_url)
-                                media_types.append(media_item.get('type', 'photo'))
-
                 # Create timestamp from createdAt
                 timestamp = None
                 if 'createdAt' in data:
@@ -463,7 +451,6 @@ class EnhancedApiDojoTwitterScraper(ApiDojoTwitterScraper):
                     # Additional metadata
                     conversation_id=conversation_id,
                     in_reply_to_user_id=in_reply_to_user_id,
-                    in_reply_to_username=in_reply_to_username
                 )
                 results.append(enhanced_content)
 
@@ -775,7 +762,6 @@ def print_enriched_content(content: EnhancedXContent):
     print(f"\nCONVERSATION INFO:")
     print(f"  Conversation ID: {content.conversation_id}")
     print(f"  In Reply To User ID: {content.in_reply_to_user_id}")
-    print(f"  In Reply To Username: {content.in_reply_to_username}")
 
     print(f"\nMEDIA CONTENT:")
     print(f"  Media URLs: {content.media_urls}")

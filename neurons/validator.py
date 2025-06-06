@@ -30,6 +30,7 @@ from common.metagraph_syncer import MetagraphSyncer
 from neurons.config import NeuronType, check_config, create_config
 from dynamic_desirability.desirability_retrieval import sync_run_retrieval
 from neurons import __spec_version__ as spec_version
+from vali_utils.validator_s3_access import ValidatorS3Access
 from rewards.data_value_calculator import DataValueCalculator
 from rich.table import Table
 from rich.console import Console
@@ -50,6 +51,7 @@ from common.date_range import DateRange
 from scraping.provider import ScraperProvider
 from scraping.x.enhanced_apidojo_scraper import EnhancedApiDojoTwitterScraper
 from vali_utils.miner_evaluator import MinerEvaluator
+from vali_utils.load_balancer.validator_registry import ValidatorRegistry
 import random
 
 load_dotenv()
@@ -117,6 +119,8 @@ class Validator:
             self._on_metagraph_updated, netuids=[self.config.netuid]
         )
         bt.logging.info(f"Metagraph: {self.metagraph}.")
+        
+        self.validator_registry = ValidatorRegistry(metagraph=self.metagraph, organic_whitelist=self.config.organic_whitelist)
 
         # Create asyncio event loop to manage async tasks.
         self.loop = asyncio.get_event_loop()
@@ -422,10 +426,11 @@ class Validator:
                 self.evaluation_cycles_since_startup = 0
                 bt.logging.info("Initializing evaluation cycles counter for delayed weight setting")
 
-            # If we've completed fewer than 2 evaluation cycles, don't set weights
-            if self.evaluation_cycles_since_startup < 2:
+            #  if we've completed fewer than the allotted number of evaluation cycles, don't set weights
+            if self.evaluation_cycles_since_startup < constants.EVALUATION_ON_STARTUP:
+
                 bt.logging.info(
-                    f"Skipping weight setting - completed {self.evaluation_cycles_since_startup}/2 evaluation cycles since startup")
+                    f"Skipping weight setting - completed {self.evaluation_cycles_since_startup}/15 evaluation cycles since startup")
                 return False
 
             # Normal 20-minute interval check for subsequent weight settings
@@ -667,24 +672,21 @@ class Validator:
 
                 # Process responses
                 for i, response in enumerate(responses):
-                    if i < len(selected_miners) and response is not None:
+                    if i < len(selected_miners):
                         uid = selected_miners[i]
                         hotkey = self.metagraph.hotkeys[uid]
-
-                        # Check if response has data
-                        data = getattr(response, 'data', [])
-                        data_count = len(data) if data else 0
-
-                        miner_responses[uid] = response
-                        miner_data_counts[uid] = data_count
-
-                        bt.logging.info(f"Miner {uid} ({hotkey}) returned {data_count} items")
-
-            if not miner_responses:
-                synapse.status = "error"
-                synapse.meta = {"error": "No miners responded to the query"}
-                synapse.data = []
-                return synapse
+                        
+                        # Check if response exists and has a valid status
+                        if response is not None and hasattr(response, 'status'):
+                            data = getattr(response, 'data', [])
+                            data_count = len(data) if data else 0
+                            
+                            miner_responses[uid] = response
+                            miner_data_counts[uid] = data_count
+                            
+                            bt.logging.info(f"Miner {uid} ({hotkey}) returned {data_count} items")
+                        else:
+                            bt.logging.warning(f"Miner {uid} ({hotkey}) failed to respond properly")
 
             # Step 1: Check if we have a consensus on "no data"
             no_data_consensus = all(count == 0 for count in miner_data_counts.values())
@@ -741,16 +743,15 @@ class Validator:
                         labels.extend([DataLabel(value=f"@{u.strip('@')}" if not u.startswith('@') else u) for u in
                                        on_demand_synapse.usernames])
 
+                    start_date = utils.parse_iso_date(on_demand_synapse.start_date) if on_demand_synapse.start_date else dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=1)
+                    end_date = utils.parse_iso_date(on_demand_synapse.end_date) if on_demand_synapse.end_date else dt.datetime.now(dt.timezone.utc)
+
                     # Create scrape config matching the miner's configuration
                     verify_config = ScrapeConfig(
-                        entity_limit=synapse.limit,  # Use requested limit
+                        entity_limit=synapse.limit,  
                         date_range=DateRange(
-                            start=dt.datetime.fromisoformat(
-                                on_demand_synapse.start_date) if on_demand_synapse.start_date else dt.datetime.now(
-                                dt.timezone.utc) - dt.timedelta(days=1),
-                            end=dt.datetime.fromisoformat(
-                                on_demand_synapse.end_date) if on_demand_synapse.end_date else dt.datetime.now(
-                                dt.timezone.utc)
+                            start=start_date,
+                            end=end_date
                         ),
                         labels=labels,
                     )
@@ -788,17 +789,15 @@ class Validator:
                         bt.logging.warning(
                             f"Miners returned no data, but validator found {len(verification_data)} items")
 
-                        # Apply penalty to all miners for this request
-                        for uid in selected_miners:
-                            validation_results = [
-                                ValidationResult(is_valid=False, reason="Failed to return existing data",
-                                                 content_size_bytes_validated=5)
-                            ]
-
-                            bt.logging.info(f"Applying 5% penalty to miner {uid} for not returning data that exists")
-
-                            # Update the miner's score with the mixed results
-                            self.evaluator.scorer._update_credibility(uid, validation_results)
+                        # Apply penalties to non-responsive miners
+                        non_responsive_uids = [uid for uid in selected_miners if uid not in miner_responses]
+                        if non_responsive_uids:
+                            bt.logging.info(f"Applying penalties to {len(non_responsive_uids)} non-responsive miners")
+                            for uid in non_responsive_uids:
+                                bt.logging.info(f"Applying a 5% credibility penalty to miner {uid} for not responding.")
+                                
+                                # Update the miner's score with the validation results
+                                self.evaluator.scorer.apply_ondemand_penalty(uid) 
 
                         # Process the verification data to match exactly what miners would return
                         processed_data = []
@@ -1106,8 +1105,9 @@ def main():
     metagraph_syncer.do_initial_sync()
     metagraph_syncer.start()
 
+    s3_reader = ValidatorS3Access(wallet=wallet, s3_auth_url=config.s3_auth_url)
     evaluator = MinerEvaluator(
-        config=config, uid=uid, metagraph_syncer=metagraph_syncer
+        config=config, uid=uid, metagraph_syncer=metagraph_syncer, s3_reader=s3_reader
     )
 
     with Validator(

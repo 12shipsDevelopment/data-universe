@@ -3,13 +3,9 @@ import asyncio
 import threading
 import traceback
 import bittensor as bt
-<<<<<<< HEAD
 from twscrape import API, AccountsPool, gather
 from twscrape.models import Tweet
-from typing import List, Tuple
-=======
 from typing import List, Tuple, Optional
->>>>>>> main
 from common import constants
 from common.data import DataEntity, DataLabel, DataSource
 from common.date_range import DateRange

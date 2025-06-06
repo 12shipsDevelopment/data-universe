@@ -391,6 +391,7 @@ class ScraperCoordinator:
 
                 if size >= bucket_size_limit:
                     bt.logging.info(f"null bucket id {bucketId} has {size} bytes data, skip scraping")
+                    scheduler.complete_task(bucketId)
                     continue
                 else:
                     target_size = bucket_size_limit - size

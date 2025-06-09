@@ -355,28 +355,54 @@ class ApiDojoTwitterScraper(Scraper):
                 hashtags = []
                 cashtags = []
                 
+                
+                def find_hashtag_position(text, hashtag):
+                    """
+                    查找文本中 hashtag 的起始和结束位置
+                    
+                    Args:
+                        text (str): 要搜索的文本
+                        hashtag (str): 要查找的 hashtag（包括 #）
+                    
+                    Returns:
+                        tuple: (start, end) 位置，如果没有找到则返回 None
+                    """
+                    start = text.find(hashtag)
+                    if start == -1:
+                        return None
+                    end = start + len(hashtag)
+                    return (start, end)
+
                 # Compile regex patterns once for better performance
-                hashtag_pattern = re.compile(
-                    r'(#)(['
-                    r'\w'  # 字母、数字、下划线（A-Za-z0-9_）
-                    r'\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF'  # 阿拉伯文
-                    r'\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF'  # 中日韩（CJK）
-                    r'\u0E00-\u0E7F'  # 泰文
-                    r'\uAC00-\uD7AF\u1100-\u11FF'  # 韩文
-                    r'\u0900-\u097F\u0980-\u09FF'  # 梵文、孟加拉文等
-                    r'\u200C'  # Zero-width non-joiner (ZWNJ)
-                    r']+)',
-                    re.UNICODE
-                )
+                # hashtag_pattern = re.compile(
+                #     r'(#)(?!\d+\b)(['
+                #     r'\w'  # 字母、数字、下划线（A-Za-z0-9_）
+                #     r'\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF'  # 阿拉伯文
+                #     r'\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF'  # 中日韩（CJK）
+                #     r'\u0E00-\u0E7F'  # 泰文
+                #     r'\uAC00-\uD7AF\u1100-\u11FF'  # 韩文
+                #     r'\u0900-\u097F\u0980-\u09FF'  # 梵文、孟加拉文等
+                #     r'\u200C'  # Zero-width non-joiner (ZWNJ)
+                #     r']+)',
+                #     re.UNICODE
+                # )
                 # hashtag_pattern = re.compile(r'(#)([\w\u0600-\u06FF\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF\u200C]+)')  # Matches #prefix with Unicode
                 cashtag_pattern = re.compile(r'(\$)([A-Za-z]{1,5}\b)')      # Matches $prefix with 1-5 letters
                 
                 # Find all hashtag matches
-                for match in hashtag_pattern.finditer(text):
-                    hashtags.append({
-                        "text": match.group(2),   # Second group (actual content)
-                        "indices": [match.start(), match.end()],  # Start and end of match}
-                    })
+                # for match in hashtag_pattern.finditer(text):
+                #     hashtags.append({
+                #         "text": match.group(2),   # Second group (actual content)
+                #         "indices": [match.start(), match.end()],  # Start and end of match}
+                #     })
+                
+                for h in tweet.hashtags:
+                    pos = find_hashtag_position(text, h)
+                    if pos:
+                        hashtags.append({
+                            "text": h[1:],  # Remove the '#' prefix
+                            "indices": pos
+                        })
                 
                 # Find all symbol matches
                 for match in cashtag_pattern.finditer(text):
@@ -391,6 +417,9 @@ class ApiDojoTwitterScraper(Scraper):
                 # Create a list of formatted tags with prefixes
                 tags = ["#" + item['text'] for item in sorted_tags]
 
+                unique_tags = []
+                [unique_tags.append(x) for x in tags if x not in unique_tags]
+                
                 # Extract media URLs from the data
                 media_urls = []
                 for media_item in tweet.media.photos:
@@ -417,7 +446,7 @@ class ApiDojoTwitterScraper(Scraper):
                         timestamp= tweet.date.replace(tzinfo=dt.timezone.utc), #dt.datetime.strptime(
                         #     data["createdAt"], "%a %b %d %H:%M:%S %z %Y"
                         # ),
-                        tweet_hashtags=tags,
+                        tweet_hashtags=unique_tags,
                         media=media_urls if media_urls else None,
                         # Enhanced fields
                         user_id=tweet.user.id_str, #,user_info['id'],

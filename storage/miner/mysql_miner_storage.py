@@ -82,7 +82,7 @@ class MySQLMinerStorage(MinerStorage):
         )
 
         with contextlib.closing(self._create_connection()) as connection:
-            with contextlib.closing(connection.cursor()) as cursor:
+            with contextlib.closing(connection.cursor(buffered=True)) as cursor:
                 # Create the DataEntity table (if it does not already exist).
                 cursor.execute(MySQLMinerStorage.DATA_ENTITY_TABLE_CREATE)
 
@@ -146,7 +146,7 @@ class MySQLMinerStorage(MinerStorage):
             # Ensure only one thread is clearing space when necessary.
             # with self.clearing_space_lock:
                 # If we would exceed our maximum configured stored content size then clear space.
-            with contextlib.closing(connection.cursor()) as cursor:
+            with contextlib.closing(connection.cursor(buffered=True)) as cursor:
                 # cursor.execute("SELECT SUM(contentSizeBytes) FROM DataEntity")
 
                 # # If there are no rows we convert the None result to 0
@@ -196,7 +196,7 @@ class MySQLMinerStorage(MinerStorage):
 
     def store_hf_dataset_info(self, hf_metadatas: List[HuggingFaceMetadata]):
         with contextlib.closing(self._create_connection()) as connection:
-            with contextlib.closing(connection.cursor()) as cursor:
+            with contextlib.closing(connection.cursor(buffered=True)) as cursor:
                 values = [
                     (
                         hf_metadata.repo_name,
@@ -215,10 +215,10 @@ class MySQLMinerStorage(MinerStorage):
     def get_earliest_data_datetime(self, source):
         query = "SELECT MIN(datetime) as earliest_date FROM DataEntity WHERE source = %s"
         with contextlib.closing(self._create_connection()) as connection:
-            cursor = connection.cursor()
-            cursor.execute(query, (source,))
-            result = cursor.fetchone()
-            return result['earliest_date'] if result and result['earliest_date'] else None
+            with contextlib.closing(connection.cursor(buffered=True)) as cursor:
+                cursor.execute(query, (source,))
+                result = cursor.fetchone()
+                return result['earliest_date'] if result and result['earliest_date'] else None
 
     def should_upload_hf_data(self, unique_id: str) -> bool:
         sql_query = """
@@ -233,25 +233,25 @@ class MySQLMinerStorage(MinerStorage):
         """
         try:
             with contextlib.closing(self._create_connection()) as connection:
-                cursor = connection.cursor()
-                cursor.execute(sql_query, (f"%_{unique_id}",))
-                result = cursor.fetchone()
+                with contextlib.closing(connection.cursor(buffered=True)) as cursor:
+                    cursor.execute(sql_query, (f"%_{unique_id}",))
+                    result = cursor.fetchone()
 
-                if result is None or result[0] is None:
-                    return True  # No data found, should upload
+                    if result is None or result[0] is None:
+                        return True  # No data found, should upload
 
-                average_datetime = result[0]  # MySQL already returns datetime object
-                if isinstance(average_datetime, str): 
-                    average_datetime = dt.datetime.strptime(average_datetime, "%Y-%m-%d %H:%M:%S")
-                average_datetime = average_datetime.replace(tzinfo=dt.timezone.utc)
+                    average_datetime = result[0]  # MySQL already returns datetime object
+                    if isinstance(average_datetime, str): 
+                        average_datetime = dt.datetime.strptime(average_datetime, "%Y-%m-%d %H:%M:%S")
+                    average_datetime = average_datetime.replace(tzinfo=dt.timezone.utc)
 
-                current_datetime = dt.datetime.now(dt.timezone.utc)
+                    current_datetime = dt.datetime.now(dt.timezone.utc)
 
-                # Calculate time difference for 5100 blocks (61 200 seconds (~17 hours))
-                time_difference = dt.timedelta(seconds=61200)
-                threshold_datetime = current_datetime - time_difference
+                    # Calculate time difference for 5100 blocks (61 200 seconds (~17 hours))
+                    time_difference = dt.timedelta(seconds=61200)
+                    threshold_datetime = current_datetime - time_difference
 
-                return threshold_datetime > average_datetime
+                    return threshold_datetime > average_datetime
         except Exception as e:
             bt.logging.error(f"An error occurred: {e}")
             return False
@@ -267,18 +267,18 @@ class MySQLMinerStorage(MinerStorage):
         """
 
         with contextlib.closing(self._create_connection()) as connection:
-            cursor = connection.cursor()
-            cursor.execute(sql_query, (f"%_{unique_id}",))
-            hf_metadatas = []
+            with contextlib.closing(connection.cursor(buffered=True)) as cursor:
+                cursor.execute(sql_query, (f"%_{unique_id}",))
+                hf_metadatas = []
 
-            for row in cursor:
-                hf_metadata = HuggingFaceMetadata(
-                    repo_name=row['uri'],
-                    source=row['source'],
-                    updated_at=row['updatedAt'],
-                    encoding_key=row['encodingKey'] if row['encodingKey'] != '' else None
-                )
-                hf_metadatas.append(hf_metadata)
+                for row in cursor:
+                    hf_metadata = HuggingFaceMetadata(
+                        repo_name=row['uri'],
+                        source=row['source'],
+                        updated_at=row['updatedAt'],
+                        encoding_key=row['encodingKey'] if row['encodingKey'] != '' else None
+                    )
+                    hf_metadatas.append(hf_metadata)
 
         return hf_metadatas
 
@@ -294,7 +294,7 @@ class MySQLMinerStorage(MinerStorage):
         )
 
         with contextlib.closing(self._create_connection()) as connection:
-            with contextlib.closing(connection.cursor()) as cursor:
+            with contextlib.closing(connection.cursor(buffered=True)) as cursor:
                 cursor.execute(
                     """SELECT * FROM DataEntity 
                             WHERE timeBucketId = %s AND label = %s AND source = %s""",
@@ -370,7 +370,7 @@ class MySQLMinerStorage(MinerStorage):
                     return
 
             with contextlib.closing(self._create_connection()) as connection:
-                with contextlib.closing(connection.cursor()) as cursor:
+                with contextlib.closing(connection.cursor(buffered=True)) as cursor:
                     oldest_time_bucket_id = TimeBucket.from_datetime(
                         dt.datetime.now()
                         - dt.timedelta(constants.DATA_ENTITY_BUCKET_AGE_LIMIT_DAYS)
@@ -458,7 +458,7 @@ class MySQLMinerStorage(MinerStorage):
             time_bucket_ids_and_labels.append(label)
 
         with contextlib.closing(self._create_connection()) as connection:
-            with contextlib.closing(connection.cursor()) as cursor:
+            with contextlib.closing(connection.cursor(buffered=True)) as cursor:
                 conditions = ["(timeBucketId = %s AND label = %s)"] * len(data_entity_bucket_ids)
                 query = (
                     "SELECT timeBucketId, source, label, content, contentSizeBytes FROM DataEntity "
@@ -512,7 +512,7 @@ class MySQLMinerStorage(MinerStorage):
         bt.logging.debug(f"Database full. Clearing {content_bytes_to_clear} bytes.")
 
         with contextlib.closing(self._create_connection()) as connection:
-            with contextlib.closing(connection.cursor()) as cursor:
+            with contextlib.closing(connection.cursor(buffered=True)) as cursor:
                 # TODO Investigate way to select last X bytes worth of entries in a single query.
                 # Get the contentSizeBytes of each row by timestamp desc.
                 cursor.execute(
@@ -545,7 +545,7 @@ class MySQLMinerStorage(MinerStorage):
         """Lists all DataEntityBuckets for all the DataEntities that this MinerStorage is currently serving."""
 
         with contextlib.closing(self._create_connection()) as connection:
-            with contextlib.closing(connection.cursor()) as cursor:
+            with contextlib.closing(connection.cursor(buffered=True)) as cursor:
                 oldest_time_bucket_id = TimeBucket.from_datetime(
                     dt.datetime.now()
                     - dt.timedelta(constants.DATA_ENTITY_BUCKET_AGE_LIMIT_DAYS)
@@ -607,7 +607,7 @@ class MySQLMinerStorage(MinerStorage):
             )
 
             with contextlib.closing(self._create_connection()) as connection:
-                with contextlib.closing(connection.cursor()) as cursor:
+                with contextlib.closing(connection.cursor(buffered=True)) as cursor:
                     cursor.execute(
                         """SELECT SUM(contentSizeBytes) FROM DataEntity 
                                 WHERE timeBucketId = %s AND label = %s AND source = %s""",

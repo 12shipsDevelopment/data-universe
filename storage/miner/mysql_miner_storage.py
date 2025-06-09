@@ -20,6 +20,7 @@ from common.data import (
 from storage.miner.miner_storage import MinerStorage
 from typing import Dict, List
 import bittensor as bt
+from scraping.x.model import XContent
 class UTCDateTimeConverter(mysql.connector.conversion.MySQLConverter):
     def _DATETIME_to_python(self, value, desc=None):
         dt = super()._DATETIME_to_python(value, desc)
@@ -308,16 +309,18 @@ class MySQLMinerStorage(MinerStorage):
                 data_entities = []
 
                 running_size = 0
-
+                start = dt.datetime.now()
                 for row in cursor:
                     # If we have already reached the max DataEntityBucket size instead return early.
                     if running_size >= constants.DATA_ENTITY_BUCKET_SIZE_LIMIT_BYTES:
                         return data_entities
                     else:
+                        content_str = row[5].decode("utf-8")
+                        content = XContent.parse_raw(content_str)
                         # Construct the new DataEntity with all non null columns.
                         data_entity = DataEntity(
                             uri=row[0],
-                            datetime=row[1].replace(tzinfo=dt.timezone.utc),
+                            datetime=content.timestamp.replace(second=row[1].second),
                             source=DataSource(row[3]),
                             content=row[5],
                             content_size_bytes=row[6],
@@ -328,7 +331,10 @@ class MySQLMinerStorage(MinerStorage):
                         )
                         data_entities.append(data_entity)
                         running_size += row[6]
-
+                end = dt.datetime.now()
+                bt.logging.info(
+                    f"Listing data entities and combining each timestamp for bucket {data_entity_bucket_id} took {(end - start).total_seconds():.2f} seconds."
+                )
                 # If we reach the end of the cursor then return all of the data entities for this DataEntityBucket.
                 bt.logging.trace(
                     f"Returning {len(data_entities)} data entities for bucket {data_entity_bucket_id}"

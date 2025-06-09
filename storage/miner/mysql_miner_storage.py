@@ -35,7 +35,7 @@ class MySQLMinerStorage(MinerStorage):
                                 datetime            DATETIME(6)    NOT NULL,
                                 timeBucketId        INT             NOT NULL,
                                 source              INT             NOT NULL,
-                                label               CHAR(32)        ,
+                                label               CHAR(150)        ,
                                 content             BLOB            NOT NULL,
                                 contentSizeBytes    BIGINT          NOT NULL
                                 )"""

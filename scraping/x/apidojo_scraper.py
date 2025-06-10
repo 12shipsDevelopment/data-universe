@@ -367,10 +367,10 @@ class ApiDojoTwitterScraper(Scraper):
                     Returns:
                         tuple: (start, end) 位置，如果没有找到则返回 None
                     """
-                    start = text.find(hashtag)
+                    start = text.find('#'+hashtag)
                     if start == -1:
                         return None
-                    end = start + len(hashtag)
+                    end = start + len(hashtag) + 1
                     return (start, end)
 
                 # Compile regex patterns once for better performance
@@ -400,7 +400,7 @@ class ApiDojoTwitterScraper(Scraper):
                     pos = find_hashtag_position(text, h)
                     if pos:
                         hashtags.append({
-                            "text": h[1:],  # Remove the '#' prefix
+                            "text": h, 
                             "indices": pos
                         })
                 

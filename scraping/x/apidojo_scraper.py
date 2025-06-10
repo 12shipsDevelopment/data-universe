@@ -458,7 +458,7 @@ class ApiDojoTwitterScraper(Scraper):
                         is_quote=tweet.quotedTweet is not None,#data.get('isQuote', None),
                         # Additional metadata
                         conversation_id=tweet.conversationIdStr,#data.get('conversationId'),
-                        in_reply_to_user_id=tweet.inReplyToTweetIdStr,#reply_info[0],
+                        in_reply_to_user_id=tweet.inReplyToUser.id_str if tweet.inReplyToUser else None,#reply_info[0],
                     )
                 )
             except Exception:

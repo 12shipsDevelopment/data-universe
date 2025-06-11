@@ -11,7 +11,7 @@ from typing import Dict, List, Optional
 import numpy
 from pydantic import Field, PositiveInt, ConfigDict
 from common.date_range import DateRange
-from common.data import DataLabel, DataSource, StrictBaseModel, TimeBucket, DataEntityBucketId
+from common.data import DataLabel, DataSource, StrictBaseModel, TimeBucket, DataEntityBucketId,constants
 from scraping.provider import ScraperProvider
 from scraping.scraper import ScrapeConfig, ScraperId
 from storage.miner.miner_storage import MinerStorage
@@ -235,6 +235,10 @@ class ScraperCoordinator:
             trends_task = asyncio.create_task(self.trends_task())
             workers.append(trends_task)
 
+        if os.environ.get("CLEANUP_DATABASE", "false") != "false":
+            cleanup_task = asyncio.create_task(self.delete_outdate_data_task())
+            workers.append(cleanup_task)
+
         scheduler = None
         if os.environ.get("SUPPORT_NULL", "false") != "false":
             scheduler = NullScheduler(
@@ -357,7 +361,7 @@ class ScraperCoordinator:
 
         null_scraper = NullScraper(scheduler=scheduler, storage= self.storage, shutdown_event= shutdown_event)
         
-        bucket_size_limit = 128 * 1024 * 1024
+        bucket_size_limit = constants.BULK_CONTENTS_SIZE_LIMIT_BYTES
         while self.is_running:
             try:
                 task = scheduler.get_task()
@@ -445,6 +449,18 @@ class ScraperCoordinator:
         while self.is_running:
             scheduler.schedule_realtime_tasks()
             now = dt.datetime.now()
+            next_bucket_start = now.replace(minute=0, second=0, microsecond=0) + dt.timedelta(hours=1)
+            wait_seconds = (next_bucket_start - now).total_seconds()
+            await asyncio.sleep(wait_seconds)
+
+    async def delete_outdate_data_task(self):
+        while self.is_running:
+            now = dt.datetime.now(dt.timezone.utc)
+            oldest_bucket_id = TimeBucket.from_datetime(now).id - constants.DATA_ENTITY_BUCKET_AGE_LIMIT_DAYS * 24
+            try:
+                self.storage.delete_outdate_data(oldest_bucket_id)
+            except Exception as e:
+                bt.logging.error(f"Error deleting outdate data: {e}")
             next_bucket_start = now.replace(minute=0, second=0, microsecond=0) + dt.timedelta(hours=1)
             wait_seconds = (next_bucket_start - now).total_seconds()
             await asyncio.sleep(wait_seconds)

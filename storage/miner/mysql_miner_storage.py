@@ -639,3 +639,13 @@ class MySQLMinerStorage(MinerStorage):
                     
                     # If there are no matching rows, SUM will return NULL which becomes None in Python
                     return total_size if total_size is not None else 0
+                
+    def delete_outdate_data(self,oldest_bucket_id: int):
+        
+        with contextlib.closing(self._create_connection()) as connection:
+            with contextlib.closing(connection.cursor(buffered=True)) as cursor:
+                cursor.execute("SELECT MIN(timeBucketId) FROM Dataentity;")
+                min_bucket = cursor.fetchall()[0][0]
+                values = [[i] for i in range(min_bucket, oldest_bucket_id)]
+                cursor.executemany("DELETE FROM DataEntity WHERE timeBucketId = %s;",values)
+                connection.commit()

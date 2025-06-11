@@ -1,22 +1,26 @@
 import redis
 import simplejson as json
-import time
 from datetime import datetime, timedelta
 from common.data import TimeBucket
-import asyncio
 
 TASK_QUEUE_KEY="x:null:task_queue" # list
 TASK_ADDED_KEY="x:null:task_added"  # set
 TASK_COMPLETED_KEY="x:null:task_completed" # set timeBucketId
 
 class NullScheduler:
-    def __init__(self, host: str, port: int, password: str):
-        self.r = redis.Redis(host=host, port=port, db=0, password=password)
+
+    @classmethod
+    def from_conn(cls, host: str, port: int, password: str):
+        r = redis.Redis(host=host, port=port, db=0, password=password)
+        return cls(r)
+
+    def __init__(self, r):
+        self.r = r
 
     def get_task(self):
         task_data = self.r.brpop(TASK_QUEUE_KEY, timeout=5)
         if not task_data:
-            print("No new tasks, waiting...")
+            print("NullScheduler: No new tasks, waiting...")
             return None
 
         _, raw_task = task_data
@@ -36,7 +40,7 @@ class NullScheduler:
             else:
                 self.r.rpush(TASK_QUEUE_KEY, json.dumps(task))
             self.r.sadd(TASK_ADDED_KEY, timeBucketId)
-            print("Added new task: ", task)
+            print("NullScheduler: Added new task: ", task)
 
     def complete_task(self, timeBucketId):
         self.r.sadd(TASK_COMPLETED_KEY, timeBucketId)
@@ -53,7 +57,7 @@ class NullScheduler:
                 "cursor": None
             }, left=False)
             start += timedelta(hours=1)
-        print("initialize 30days tasks completed")
+        print("NullScheduler: initialize 30days tasks completed")
 
     def schedule_realtime_tasks(self):
         now = datetime.utcnow().replace(minute=0, second=0, microsecond=0)

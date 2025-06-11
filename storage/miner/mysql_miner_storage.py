@@ -317,31 +317,15 @@ class MySQLMinerStorage(MinerStorage):
                     else:
                         content_str = row[5].decode("utf-8")
                         content = XContent.parse_raw(content_str)
-                        content = XContent(
-                            username=content.username,
-                            text=content.text,
-                            url=content.url,
-                            timestamp=content.timestamp.replace(second=row[1].second),
-                            tweet_hashtags=content.tweet_hashtags,
-                            media=content.media,
-                            user_id=content.user_id,
-                            user_display_name=content.user_display_name,
-                            user_verified=content.user_verified,
-                            tweet_id=content.tweet_id,
-                            is_reply=content.is_reply,
-                            is_quote=content.is_quote,
-                            conversation_id=content.conversation_id
-                        )
-                        data_entity = XContent.to_data_entity(content=content)
                         # Construct the new DataEntity with all non null columns.
-                        # data_entity = DataEntity(
-                        #     uri=row[0],
-                        #     datetime=content.timestamp.replace(second=row[1].second),
-                        #     source=DataSource(row[3]),
-                        #     content=row[5],
-                        #     content_size_bytes=row[6],
-                        #     label=DataLabel(value=row[4]) if row[4] != "NULL" else None
-                        # )
+                        data_entity = DataEntity(
+                            uri=row[0],
+                            datetime=content.timestamp.replace(second=row[1].second),
+                            source=DataSource(row[3]),
+                            content=row[5],
+                            content_size_bytes=row[6],
+                            label=DataLabel(value=row[4]) if row[4] != "NULL" else None
+                        )
                         bt.logging.debug( 
                             f"Adding data entity {data_entity} to bucket {data_entity_bucket_id}"
                         )

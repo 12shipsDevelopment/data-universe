@@ -117,7 +117,7 @@ class LabelScheduler:
 
     def __init__(self, r, labels = DEFAULT_LABELS):
         self.r = r
-        self.labels = labels
+        self.labels = labels.reverse()
 
     def __key(self, label, bucketId):    
         return f"{bucketId}-{label}"

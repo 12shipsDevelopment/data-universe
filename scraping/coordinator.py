@@ -18,6 +18,8 @@ from storage.miner.miner_storage import MinerStorage
 from twscrape import AccountsPool, API
 from scraping.null_scraping import NullScraper
 from scraping.null_scheduler import NullScheduler
+from scraping.label_scheduler import LabelScheduler
+from scraping.label_scraping import LabelScraper
 
 
 class LabelScrapingConfig(StrictBaseModel):
@@ -223,13 +225,13 @@ class ScraperCoordinator:
 
     async def _start(self):
         workers = []
-        for i in range(self.max_workers):
-            worker = asyncio.create_task(
-                self._worker(
-                    f"worker-{i}",
-                )
-            )
-            workers.append(worker)
+        # for i in range(self.max_workers):
+        #     worker = asyncio.create_task(
+        #         self._worker(
+        #             f"worker-{i}",
+        #         )
+        #     )
+        #     workers.append(worker)
 
         if os.environ.get("SUPPORT_TRENDS", "false") != "false":
             trends_task = asyncio.create_task(self.trends_task())
@@ -241,7 +243,7 @@ class ScraperCoordinator:
 
         scheduler = None
         if os.environ.get("SUPPORT_NULL", "false") != "false":
-            scheduler = NullScheduler(
+            scheduler = NullScheduler.from_conn(
                 host=os.environ.get("REDIS_HOST", "127.0.0.1"), 
                 port=int(os.environ.get("REDIS_PORT", "6379")), 
                 password=os.environ.get("REDIS_PASSWORD", "")
@@ -251,34 +253,50 @@ class ScraperCoordinator:
                 schedule_task = asyncio.create_task(self.schedule_realtime_task(scheduler))
                 workers.append(schedule_task)
 
-            for i in range(int(os.environ.get("NULL_PARALLEL", "20"))):
+            for i in range(int(os.environ.get("NULL_PARALLEL", "5"))):
                 null_task = asyncio.create_task(self.null_scraping_task(scheduler,self.shutdown_event))
                 workers.append(null_task)
 
-        while self.is_running:
-            now = dt.datetime.utcnow()
-            scraper_ids_to_scrape_now = self.tracker.get_scraper_ids_ready_to_scrape(
-                now
+        if os.environ.get("SUPPORT_LABEL", "false") != "false":
+            scheduler = LabelScheduler.from_conn(
+                host=os.environ.get("REDIS_HOST", "127.0.0.1"), 
+                port=int(os.environ.get("REDIS_PORT", "6379")), 
+                password=os.environ.get("REDIS_PASSWORD", "")
             )
-            if not scraper_ids_to_scrape_now:
-                bt.logging.info("Nothing ready to scrape yet. Trying again in 15s.")
-                # Nothing is due a scrape. Wait a few seconds and try again
-                await asyncio.sleep(5)
-                continue
+            if os.environ.get("LABEL_INIT_TASKS", "false") != "false":
+                scheduler.init_tasks()
+                schedule_task = asyncio.create_task(self.schedule_label_realtime_task(scheduler))
+                workers.append(schedule_task)
 
-            for scraper_id in scraper_ids_to_scrape_now:
-                scraper = self.provider.get(scraper_id)
+            for i in range(int(os.environ.get("LABEL_PARALLEL", "5"))):
+                label_task = asyncio.create_task(self.label_scraping_task(scheduler,self.shutdown_event))
+                workers.append(label_task)
 
-                scrape_configs = _choose_scrape_configs(scraper_id, self.config, now)
+        while self.is_running:
+            await asyncio.sleep(5)
+            # now = dt.datetime.utcnow()
+            # scraper_ids_to_scrape_now = self.tracker.get_scraper_ids_ready_to_scrape(
+            #     now
+            # )
+            # if not scraper_ids_to_scrape_now:
+            #     bt.logging.info("Nothing ready to scrape yet. Trying again in 15s.")
+            #     # Nothing is due a scrape. Wait a few seconds and try again
+            #     await asyncio.sleep(5)
+            #     continue
 
-                for config in scrape_configs:
-                    # Use .partial here to make sure the functions arguments are copied/stored
-                    # now rather than being lazily evaluated (if a lambda was used).
-                    # https://pylint.readthedocs.io/en/latest/user_guide/messages/warning/cell-var-from-loop.html#cell-var-from-loop-w0640
-                    bt.logging.info(f"Adding scrape task for {scraper_id}: {config}.")
-                    self.queue.put_nowait(functools.partial(scraper.scrape, config))
+            # for scraper_id in scraper_ids_to_scrape_now:
+            #     scraper = self.provider.get(scraper_id)
 
-                self.tracker.on_scrape_scheduled(scraper_id, now)
+            #     scrape_configs = _choose_scrape_configs(scraper_id, self.config, now)
+
+            #     for config in scrape_configs:
+            #         # Use .partial here to make sure the functions arguments are copied/stored
+            #         # now rather than being lazily evaluated (if a lambda was used).
+            #         # https://pylint.readthedocs.io/en/latest/user_guide/messages/warning/cell-var-from-loop.html#cell-var-from-loop-w0640
+            #         bt.logging.info(f"Adding scrape task for {scraper_id}: {config}.")
+            #         self.queue.put_nowait(functools.partial(scraper.scrape, config))
+
+            #     self.tracker.on_scrape_scheduled(scraper_id, now)
 
         bt.logging.info("Coordinator shutting down. Waiting for workers to finish.")
         await asyncio.gather(*workers)
@@ -379,7 +397,7 @@ class ScraperCoordinator:
                 contentSize = task["contentSizeBytes"]
                 cursor = task["cursor"]
 
-                if task["timeBucketId"] < TimeBucket.from_datetime(now - dt.timedelta(days=30)).id:
+                if task["timeBucketId"] < TimeBucket.from_datetime(now - dt.timedelta(days=constants.DATA_ENTITY_BUCKET_AGE_LIMIT_DAYS)).id:
                     continue
                 
                 
@@ -445,7 +463,75 @@ class ScraperCoordinator:
                 bt.logging.error("Twitter scraping error: " + traceback.format_exc())
                 await asyncio.sleep(300)  # Wait 5 minutes before retrying after error
 
+    
+    async def label_scraping_task(self, scheduler: LabelScheduler, shutdown_event: threading.Event):
+        """Runs periodic label bucket scraping tasks using timebuckets."""
+        bt.logging.info("Starting label scraping tasks...")
+        await asyncio.sleep(5)
+
+        label_scraper = LabelScraper(scheduler=scheduler, storage= self.storage, shutdown_event= shutdown_event)
+        
+        while self.is_running:
+            try:
+                task = scheduler.get_task()
+
+                now = dt.datetime.now()
+                if not task:
+                    next_bucket_start = now.replace(minute=0, second=0, microsecond=0) + dt.timedelta(hours=1)
+                    wait_seconds = (next_bucket_start - now).total_seconds()
+                    bt.logging.info(f"no label {label} bucket to scrape, sleep to {next_bucket_start}, total {wait_seconds}s")
+                    await asyncio.sleep(wait_seconds)
+                    continue
+
+                bucketId = task["timeBucketId"]
+                label = task["label"]
+                cursor = task["cursor"]
+
+                if task["timeBucketId"] < TimeBucket.from_datetime(now - dt.timedelta(days=constants.DATA_ENTITY_BUCKET_AGE_LIMIT_DAYS)).id:
+                    continue
+                
+                check_bucket_id = DataEntityBucketId(
+                        time_bucket=TimeBucket(id = task["timeBucketId"]),
+                        source=DataSource.X,
+                        label=DataLabel(value = label),
+                    )
+                
+                target_bucket = TimeBucket(id=bucketId)
+                date_range = TimeBucket.to_date_range(target_bucket)
+                
+                bt.logging.success(f"Processing label {label} data for timebucket {bucketId} ({date_range})")
+                
+                # Run the parallel processing
+                cursor = await label_scraper.process_tags_parallel(
+                    tag=label,
+                    bucket_id = bucketId,
+                    date_range=date_range,
+                    chunk_size_bytes=512 * 1024,
+                    cursor=cursor
+                )
+                
+                new_size = self.storage.get_total_size_of_data_entities_in_bucket(check_bucket_id)
+                bt.logging.success(f"Completed scraping label {label} for timebucket {bucketId}. Bucket collected: {new_size/1024/1024:.2f}MB")
+
+                scheduler.complete_task(label,bucketId)
+
+                
+                wait_seconds = 60  # 1 minute
+                await asyncio.sleep(wait_seconds)
+                
+            except Exception as e:
+                bt.logging.error("Twitter scraping error: " + traceback.format_exc())
+                await asyncio.sleep(300)  # Wait 5 minutes before retrying after error
+
     async def schedule_realtime_task(self, scheduler: NullScheduler):
+        while self.is_running:
+            scheduler.schedule_realtime_tasks()
+            now = dt.datetime.now()
+            next_bucket_start = now.replace(minute=0, second=0, microsecond=0) + dt.timedelta(hours=1)
+            wait_seconds = (next_bucket_start - now).total_seconds()
+            await asyncio.sleep(wait_seconds)
+            
+    async def schedule_label_realtime_task(self, scheduler: LabelScheduler):
         while self.is_running:
             scheduler.schedule_realtime_tasks()
             now = dt.datetime.now()

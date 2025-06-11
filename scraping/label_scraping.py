@@ -9,7 +9,7 @@ from common.data import DataEntity,TimeBucket
 from storage.miner.miner_storage import MinerStorage
 from common.date_range import DateRange
 import bittensor as bt
-from scraping.null_scheduler import NullScheduler
+from scraping.label_scheduler import LabelScheduler
 import threading
 class SizeAwareQueue:
     """Thread-safe queue with size tracking"""
@@ -48,11 +48,11 @@ class SizeAwareQueue:
         async with self._lock:
             return not self._size_exceeded
 
-class NullScraper:
+class LabelScraper:
     def __init__(
         self,
         storage: MinerStorage,
-        scheduler: NullScheduler,
+        scheduler: LabelScheduler,
         shutdown_event: threading.Event
     ):
 
@@ -62,7 +62,7 @@ class NullScraper:
         self._shutdown_event = shutdown_event
         
         asyncio.create_task(self._watch_shutdown())
-        print("init null scraper")
+        print("init label scraper")
 
     async def _watch_shutdown(self):
         while not self._shutdown_event.is_set():
@@ -91,7 +91,6 @@ class NullScraper:
     ) :
         """Fetch tweets for a single tag in chunks"""
         scraper = ApiDojoTwitterScraper()
-
         bucket_id = TimeBucket.from_datetime(date_range.start).id
         query = self.generate_current_hour_query(tag, date_range)
         last_cursor = cursor
@@ -122,8 +121,7 @@ class NullScraper:
                     for data in data_entities:
                         # Only count size for tweets in current hour with NULL first_tag
                         if data.datetime >= current_hour_start:
-                            if not data.label:  # NULL tag
-                                current_chunk_size += data.content_size_bytes
+                            current_chunk_size += data.content_size_bytes
                         
                         current_chunk.append(data)
                         
@@ -131,7 +129,7 @@ class NullScraper:
                         if current_chunk_size >= chunk_size_bytes:
                             end = dt.datetime.now()
                             time_diff = end -start
-                            bt.logging.success(f"Scraped {len(current_chunk)} tweets in chunk {tag}{chunk_num} , with {current_chunk_size} bytes null tag tweets in {bucket_id}, skip {skip_total} old age tweets, elapsed {time_diff.total_seconds():.2f}s")
+                            bt.logging.success(f"Scraped {len(current_chunk)} tweets in chunk {tag}-{chunk_num} , with {current_chunk_size} bytes label {tag} tweets in {bucket_id}, skip {skip_total} old age tweets, elapsed {time_diff.total_seconds():.2f}s")
                             if not await output_queue.put(current_chunk, current_chunk_size):
                                 bt.logging.success(f"end of scrape {tag} in {bucket_id}")
                                 return cursor
@@ -145,7 +143,7 @@ class NullScraper:
                     end = dt.datetime.now()
                     time_diff = end -start
                     if len(current_chunk) > 0:
-                        bt.logging.success(f"use tag {tag} scraped {len(current_chunk)} tweets in  chunk {tag}{chunk_num} (last), with {current_chunk_size} bytes null tag tweets in {bucket_id}, elapsed {time_diff.total_seconds():.2f}s")
+                        bt.logging.success(f"use tag {tag} scraped {len(current_chunk)} tweets in  chunk {tag}-{chunk_num} (last), with {current_chunk_size} bytes label {tag} tweets in {bucket_id}, elapsed {time_diff.total_seconds():.2f}s")
                         await output_queue.put(current_chunk, current_chunk_size)
                     bt.logging.success(f"end of scrape {tag} in {bucket_id}")
                     return None
@@ -154,11 +152,11 @@ class NullScraper:
                 self._current_task["cursor"]= cursor
 
             except Exception as e:
-                bt.logging.error(f"Error processing tag {tag}: {str(e)}")
+                bt.logging.error(f"Error processing tag {tag} in {bucket_id}: {str(e)}")
                 if current_chunk:  # Submit collected data on error
                     end = dt.datetime.now()
                     time_diff = end -start
-                    bt.logging.success(f"use tag {tag} scraped {len(current_chunk)} in  chunk {tag}{chunk_num} (last), with {current_chunk_size} bytes null tag tweets in {bucket_id}, elapsed {time_diff.total_seconds():.2f}s")
+                    bt.logging.success(f"use tag {tag} scraped {len(current_chunk)} in  chunk {tag}-{chunk_num} (last), with {current_chunk_size} bytes label {tag} tweets in {bucket_id}, elapsed {time_diff.total_seconds():.2f}s")
                     bt.logging.success(f"end of scrape {tag} in {bucket_id}")
                     await output_queue.put(current_chunk, current_chunk_size)
                 return cursor
@@ -188,7 +186,7 @@ class NullScraper:
                 bt.logging.success(f"store {len(chunk)} DataEntities elapsed {time_diff.total_seconds():.2f}s ")
             # await save_to_db(chunk)
             except Exception as e:
-                bt.logging.error("null worker error: " + str(e))
+                bt.logging.error("label worker error : " + str(e))
         bt.logging.info("process_tweets_consumer exit")
 
     async def process_tags_parallel(
@@ -196,17 +194,17 @@ class NullScraper:
         tag: str,
         bucket_id: int,
         date_range :DateRange,
-        max_total_size_bytes: int = 128 * 1024 * 1024,
         chunk_size_bytes: int = 1 *1024 *1024,
         cursor: str|None = None,
+        max_total_size_bytes: int = 128 * 1024 * 1024,
     ):
         """Process multiple tags in parallel with size control"""
         output_queue = SizeAwareQueue(max_total_size_bytes + 2 * chunk_size_bytes)
-        self.stop_event = asyncio.Event()  
+        self.stop_event = asyncio.Event()
         self._current_task = {
             "timeBucketId": bucket_id,
             "contentSizeBytes": 0,
-            "tag": tag,
+            "label": tag,
             "cursor": cursor
         }
 

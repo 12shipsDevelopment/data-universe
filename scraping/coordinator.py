@@ -486,6 +486,7 @@ class ScraperCoordinator:
                 bucketId = task["timeBucketId"]
                 label = task["label"]
                 cursor = task["cursor"]
+                source = task.get("source", None)
 
                 if task["timeBucketId"] < TimeBucket.from_datetime(now - dt.timedelta(days=constants.DATA_ENTITY_BUCKET_AGE_LIMIT_DAYS)).id:
                     continue
@@ -507,7 +508,8 @@ class ScraperCoordinator:
                     bucket_id = bucketId,
                     date_range=date_range,
                     chunk_size_bytes=512 * 1024,
-                    cursor=cursor
+                    cursor=cursor,
+                    source=source
                 )
                 
                 new_size = self.storage.get_total_size_of_data_entities_in_bucket(check_bucket_id)

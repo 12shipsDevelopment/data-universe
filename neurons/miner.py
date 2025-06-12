@@ -601,7 +601,6 @@ class Miner:
 
             config = ScrapeConfig(
                 entity_limit=synapse.limit,
-                scraper_base=os.environ.get("SCRAPER_BASE", "http://localhost:8080/"),
                 date_range=DateRange(
                     start=start_dt,
                     end=end_dt

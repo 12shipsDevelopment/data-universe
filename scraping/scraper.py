@@ -58,10 +58,6 @@ class ScrapeConfig(StrictBaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    scraper_base: str = Field(
-        default="http://localhost:8080/",
-        description="The URL of the scraper to be used. This should be a valid URL that can be used to scrape data.",
-    )
     entity_limit: Optional[PositiveInt]
     date_range: DateRange
     labels: Optional[List[DataLabel]] = Field(

@@ -5,12 +5,15 @@ import datetime as dt
 from twscrape import API
 from scraping.x.apidojo_scraper import ApiDojoTwitterScraper
 from scraping.x.model import XContent
-from common.data import DataEntity,TimeBucket
+from common.data import DataEntity,TimeBucket, DataLabel, DataSource
 from storage.miner.miner_storage import MinerStorage
 from common.date_range import DateRange
 import bittensor as bt
 from scraping.label_scheduler import LabelScheduler
 import threading
+from scraping.reddit.reddit_lite_scraper import RedditLiteScraper
+from scraping.scraper import ScrapeConfig
+
 class SizeAwareQueue:
     """Thread-safe queue with size tracking"""
     def __init__(self, max_total_size_bytes):
@@ -163,6 +166,31 @@ class LabelScraper:
                     await output_queue.put(current_chunk, current_chunk_size)
                 return cursor
 
+    async def fetch_reddit_for_tag(self, tag: str, date_range: DateRange, output_queue: SizeAwareQueue):
+        """Fetch Reddit posts for a single tag"""
+        scraper = RedditLiteScraper()
+        
+        bucket_id = TimeBucket.from_datetime(date_range.start).id
+        try:
+            start = dt.datetime.now()
+            data_entities = await scraper.scrape(
+                scrape_config=ScrapeConfig(
+                    entity_limit=8000,
+                    date_range=date_range,
+                    labels=[DataLabel(value=tag)],
+                )
+            )
+            total_size = sum(de.content_size_bytes for de in data_entities)
+        
+            end = dt.datetime.now()
+            time_diff = end -start
+            bt.logging.success(f"use tag {tag} scraped {len(data_entities)} reddits , with {total_size} bytes label {tag} reddits in {bucket_id}, elapsed {time_diff.total_seconds():.2f}s")
+
+            await output_queue.put(data_entities,total_size)
+            bt.logging.success(f"Fetched Reddit posts for tag {tag} in range {date_range}")
+        except Exception as e:
+            bt.logging.error(f"Error fetching Reddit posts for tag {tag}: {str(e)}")
+
     async def process_tweets_consumer(self,output_queue: SizeAwareQueue):
         """Consumer coroutine to process fetched tweets"""
         count = 0
@@ -198,6 +226,7 @@ class LabelScraper:
         date_range :DateRange,
         chunk_size_bytes: int = 1 *1024 *1024,
         cursor: str|None = None,
+        source: int|None = None,
         max_total_size_bytes: int = 128 * 1024 * 1024,
     ):
         """Process multiple tags in parallel with size control"""
@@ -213,8 +242,12 @@ class LabelScraper:
         # Start consumer
         consumer_task = asyncio.create_task(self.process_tweets_consumer(output_queue))
         
-        # Wait for producers to complete
-        new_cursor= await self.fetch_tweets_for_tag(tag, date_range, output_queue, chunk_size_bytes, cursor)
+        
+        if source == DataSource.REDDIT:
+            await self.fetch_reddit_for_tag(tag, date_range, output_queue)
+        else:
+            # Wait for producers to complete
+            new_cursor= await self.fetch_tweets_for_tag(tag, date_range, output_queue, chunk_size_bytes, cursor)
         
         # Notify consumer to finish
         self.stop_event.set()

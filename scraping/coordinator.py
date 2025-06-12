@@ -267,7 +267,7 @@ class ScraperCoordinator:
                 password=os.environ.get("REDIS_PASSWORD", "")
             )
             if os.environ.get("LABEL_INIT_TASKS", "false") != "false":
-                scheduler.init_tasks()
+                scheduler.init_tasks(scheduler.labels)
                 schedule_task = asyncio.create_task(self.schedule_label_realtime_task(scheduler))
                 workers.append(schedule_task)
 
@@ -491,7 +491,7 @@ class ScraperCoordinator:
 
                 bucketId = task["timeBucketId"]
                 label = task["label"]
-                cursor = task["cursor"]
+                cursor = task.get("cursor", None)
                 source = task.get("source", None)
 
                 if task["timeBucketId"] < TimeBucket.from_datetime(now - dt.timedelta(days=constants.DATA_ENTITY_BUCKET_AGE_LIMIT_DAYS)).id:
@@ -559,6 +559,7 @@ class ScraperCoordinator:
             await asyncio.sleep(wait_seconds)
 
     async def desirability_task(self, desirability_event: threading.Event, scheduler: LabelScheduler):
+        old_label_list = []
         while self.is_running:
             while not desirability_event.is_set():
                 await asyncio.sleep(300)
@@ -586,22 +587,13 @@ class ScraperCoordinator:
                         if params["platform"] == "x":
                             bt.logging.info(f"Found label: {params['label']}")
                             label_list.append(params["label"])
-                
-            scheduler.labels.extend(label_list)
-
-            now = dt.datetime.now()
-            start = now - dt.timedelta(days=constants.DATA_ENTITY_BUCKET_AGE_LIMIT_DAYS)
-            while start <= now:
-                timeBucketId = TimeBucket.from_datetime(start).id - 1
-                for label in label_list:
-                    scheduler.add_task({
-                        "timeBucketId": timeBucketId,
-                        "contentSizeBytes": 0,
-                        "label": label,
-                        "cursor": None
-                    }, left=False)
-                start += dt.timedelta(hours=1)
-
+            if old_label_list == label_list:
+                bt.logging.info("No new labels found, skipping desirability task.")
+                continue
+            scheduler.total=label_list
+            scheduler.init_tasks(label_list)
+            
+            old_label_list = label_list.copy()
             bt.logging.info("Desirability task completed. Waiting for next trigger.")
 
 def next_tag(tag: str):

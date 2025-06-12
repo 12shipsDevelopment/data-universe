@@ -1,7 +1,7 @@
 import redis
 import simplejson as json
 from datetime import datetime, timedelta
-from common.data import TimeBucket
+from common.data import TimeBucket, DataSource
 
 TASK_QUEUE_KEY="x:label:task_queue" # list
 TASK_ADDED_KEY="x:label:task_added"  # set
@@ -124,6 +124,7 @@ class LabelScheduler:
     def __init__(self, r, labels :list[str] = DEFAULT_LABELS):
         self.r = r
         self.labels = labels
+        self.total = []
         self.labels.reverse()
 
     def __key(self, label, bucketId):    
@@ -159,12 +160,12 @@ class LabelScheduler:
     def complete_task(self, label, timeBucketId):
         self.r.sadd(TASK_COMPLETED_KEY, self.__key(label, timeBucketId))
 
-    def init_tasks(self, days_back=30):
+    def init_tasks(self, labels, days_back=30):
         now = datetime.now()
         start = now - timedelta(days=days_back)
-        while start < now:
+        while start <= now:
             timeBucketId = TimeBucket.from_datetime(start).id - 1
-            for label in self.labels:
+            for label in labels:
                 self.add_task({
                     "timeBucketId": timeBucketId,
                     "contentSizeBytes": 0,
@@ -177,10 +178,20 @@ class LabelScheduler:
     def schedule_realtime_tasks(self):
         now = datetime.now()
         timeBucketId = TimeBucket.from_datetime(now).id - 1
-        for label in self.labels:
-            self.add_task({
-                "timeBucketId": timeBucketId,
-                "contentSizeBytes": 0,
-                "label": label,
-                "cursor": None
-            }, left=False)
+        for label in self.labels + self.total:
+            if label.startswith('#'):
+                self.add_task({
+                    "timeBucketId": timeBucketId,
+                    "contentSizeBytes": 0,
+                    "label": label,
+                    "cursor": None,
+                    "source": DataSource.X
+                }, left=False)
+            elif label.startswith('r/'):
+                self.add_task({
+                    "timeBucketId": timeBucketId,
+                    "contentSizeBytes": 0,
+                    "label": label,
+                    "cursor": None,
+                    "source": DataSource.REDDIT
+                }, left=False)

@@ -171,6 +171,11 @@ class LabelScraper:
         scraper = RedditLiteScraper()
         
         bucket_id = TimeBucket.from_datetime(date_range.start).id
+        now = dt.datetime.now()
+        age_limit = now - dt.timedelta(days=30)
+        if bucket_id < TimeBucket.from_datetime(age_limit).id:
+            bt.logging.warning(f"Reddit scraping for tag {tag} in {bucket_id} is limited to posts within the last 30 days, skipping older posts.")
+            return
         try:
             start = dt.datetime.now()
             data_entities = await scraper.scrape(
@@ -236,7 +241,8 @@ class LabelScraper:
             "timeBucketId": bucket_id,
             "contentSizeBytes": 0,
             "label": tag,
-            "cursor": cursor
+            "cursor": cursor,
+            "source": source if source is not None else DataSource.X
         }
 
         # Start consumer

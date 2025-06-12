@@ -240,7 +240,7 @@ class Miner:
                 bt.logging.info(f"Checking for update. Last update: {last_update}, Current time: {current_datetime}")
 
                 # Check if it's a new day and we haven't updated yet
-                if last_update is None or current_datetime.date() > last_update.date():
+                if last_update is None or current_datetime > last_update + dt.timedelta(hours=1):
                     bt.logging.info("Retrieving the latest dynamic lookup...")
                     sync_run_retrieval(self.config, self.desirablility_event)
                     bt.logging.info(f"New desirable data list has been written to total.json")

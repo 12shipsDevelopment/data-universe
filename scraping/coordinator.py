@@ -275,8 +275,9 @@ class ScraperCoordinator:
                 label_task = asyncio.create_task(self.label_scraping_task(scheduler,self.shutdown_event))
                 workers.append(label_task)
             
-            desirability_task = asyncio.create_task(self.desirability_task(self.desirablility_event, scheduler))
-            workers.append(desirability_task)
+            if os.environ.get("LABEL_DESIRABILITY", "false") != "false":
+                desirability_task = asyncio.create_task(self.desirability_task(self.desirablility_event, scheduler))
+                workers.append(desirability_task)
 
         while self.is_running:
             await asyncio.sleep(5)

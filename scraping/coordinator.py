@@ -515,8 +515,7 @@ class ScraperCoordinator:
 
                 scheduler.complete_task(label,bucketId)
 
-                
-                wait_seconds = 1 
+                wait_seconds = 1
                 await asyncio.sleep(wait_seconds)
                 
             except Exception as e:

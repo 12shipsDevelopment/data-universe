@@ -116,7 +116,9 @@ class LabelScraper:
                     
                     data_entities :list[DataEntity] = []
                     for x_content in x_contents:
-                        data_entities.append(XContent.to_data_entity(content=x_content))
+                        data_entity = XContent.to_data_entity(content=x_content)
+                        if data_entity.content_size_bytes < 65520:
+                            data_entities.append(data_entity)
 
                     for data in data_entities:
                         # Only count size for tweets in current hour with NULL first_tag

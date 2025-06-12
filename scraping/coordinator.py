@@ -4,6 +4,7 @@ import random
 import threading
 import traceback
 import os
+import json
 import bittensor as bt
 import datetime as dt
 import signal
@@ -190,7 +191,8 @@ class ScraperCoordinator:
         scraper_provider: ScraperProvider,
         miner_storage: MinerStorage,
         config: CoordinatorConfig,
-        shutdown_event: threading.Event
+        shutdown_event: threading.Event,
+        desirablility_event: threading.Event
     ):
         self.provider = scraper_provider
         self.storage = miner_storage
@@ -202,6 +204,7 @@ class ScraperCoordinator:
         self.queue = asyncio.Queue()
         
         self.shutdown_event = shutdown_event
+        self.desirablility_event = desirablility_event
 
 
     def run_in_background_thread(self):
@@ -271,6 +274,9 @@ class ScraperCoordinator:
             for i in range(int(os.environ.get("LABEL_PARALLEL", "5"))):
                 label_task = asyncio.create_task(self.label_scraping_task(scheduler,self.shutdown_event))
                 workers.append(label_task)
+            
+            desirability_task = asyncio.create_task(self.desirability_task(self.desirablility_event, scheduler))
+            workers.append(desirability_task)
 
         while self.is_running:
             await asyncio.sleep(5)
@@ -552,6 +558,51 @@ class ScraperCoordinator:
             wait_seconds = (next_bucket_start - now).total_seconds()
             await asyncio.sleep(wait_seconds)
 
+    async def desirability_task(self, desirability_event: threading.Event, scheduler: LabelScheduler):
+        while self.is_running:
+            while not desirability_event.is_set():
+                await asyncio.sleep(300)
+            
+            desirability_event.clear()
+            bt.logging.info("Running desirability task...")
+
+            script_path = os.path.abspath(__file__)
+            script_dir = os.path.dirname(script_path)
+            target_path = os.path.join(script_dir,"..","dynamic_desirability","total.json")
+            if not os.path.exists(target_path):
+                bt.logging.info(f"Desirability file {target_path} does not exist, skipping.")
+                continue
+
+            with open(target_path, 'r') as f:
+                default_jobs = json.load(f)
+
+            label_list = []
+            for job in default_jobs:
+                if "params" in job:
+                    params = job["params"]
+                    if "label" in params and "platform" in params:
+                        if params["label"] in list or params["label"] in scheduler.labels:
+                            continue
+                        if params["platform"] == "x":
+                            bt.logging.info(f"Found label: {params['label']}")
+                            label_list.append(params["label"])
+                
+            scheduler.labels.extend(label_list)
+
+            now = dt.datetime.now()
+            start = now - dt.timedelta(days=constants.DATA_ENTITY_BUCKET_AGE_LIMIT_DAYS)
+            while start <= now:
+                timeBucketId = TimeBucket.from_datetime(start).id - 1
+                for label in label_list:
+                    scheduler.add_task({
+                        "timeBucketId": timeBucketId,
+                        "contentSizeBytes": 0,
+                        "label": label,
+                        "cursor": None
+                    }, left=False)
+                start += dt.timedelta(hours=1)
+
+            bt.logging.info("Desirability task completed. Waiting for next trigger.")
 
 def next_tag(tag: str):
     chars = list(tag)

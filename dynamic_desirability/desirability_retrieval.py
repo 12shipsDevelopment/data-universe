@@ -279,7 +279,7 @@ def get_hotkey_json_submission(subtensor: bt.subtensor, netuid: int, metagraph: 
         return None
 
 
-async def run_retrieval(config) -> DataDesirabilityLookup:
+async def run_retrieval(config, event) -> DataDesirabilityLookup:
     try:
         my_wallet = bt.wallet(config=config)
         subtensor = bt.subtensor(config=config)
@@ -303,7 +303,7 @@ async def run_retrieval(config) -> DataDesirabilityLookup:
         default_path = os.path.join(script_dir, DEFAULT_JSON_PATH)
         calculate_total_weights(validator_data=validator_data, default_json_path=default_path,
                                 total_vali_weight=TOTAL_VALI_WEIGHT)
-
+        event.set()
         return to_lookup(os.path.join(script_dir, AGGREGATE_JSON_PATH))
 
     except Exception as e:
@@ -311,8 +311,8 @@ async def run_retrieval(config) -> DataDesirabilityLookup:
         script_dir = os.path.dirname(os.path.abspath(__file__))
         return to_lookup(os.path.join(script_dir, DEFAULT_JSON_PATH))
 
-def sync_run_retrieval(config):
-    return asyncio.run(run_retrieval(config))
+def sync_run_retrieval(config, event):
+    return asyncio.run(run_retrieval(config, event))
 
 if __name__ == "__main__":
     asyncio.run(run_retrieval(config=None))

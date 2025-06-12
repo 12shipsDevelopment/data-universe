@@ -185,11 +185,13 @@ class Miner:
         self.shutdown_event = threading.Event()
         signal.signal(signal.SIGINT, self._handle_signal)
         signal.signal(signal.SIGTERM, self._handle_signal)
+        self.desirablility_event = threading.Event()
         self.scraping_coordinator = ScraperCoordinator(
             scraper_provider=ScraperProvider(),
             miner_storage=self.storage,
             config=scraping_config,
-            shutdown_event = self.shutdown_event
+            shutdown_event = self.shutdown_event,
+            desirablility_event = self.desirablility_event
         )
 
         # Configure per hotkey per request limits.
@@ -240,7 +242,7 @@ class Miner:
                 # Check if it's a new day and we haven't updated yet
                 if last_update is None or current_datetime.date() > last_update.date():
                     bt.logging.info("Retrieving the latest dynamic lookup...")
-                    sync_run_retrieval(self.config)
+                    sync_run_retrieval(self.config, self.desirablility_event)
                     bt.logging.info(f"New desirable data list has been written to total.json")
                     last_update = current_datetime
                     bt.logging.info(f"Updated dynamic lookup at {last_update}")

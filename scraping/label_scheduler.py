@@ -121,7 +121,7 @@ class LabelScheduler:
         r = redis.Redis(host=host, port=port, db=0, password=password)
         return cls(r)
 
-    def __init__(self, r, labels = DEFAULT_LABELS):
+    def __init__(self, r, labels :list[str] = DEFAULT_LABELS):
         self.r = r
         self.labels = labels
         self.labels.reverse()
@@ -160,7 +160,7 @@ class LabelScheduler:
         self.r.sadd(TASK_COMPLETED_KEY, self.__key(label, timeBucketId))
 
     def init_tasks(self, days_back=30):
-        now = datetime.utcnow().replace(minute=0, second=0, microsecond=0)
+        now = datetime.now()
         start = now - timedelta(days=days_back)
         while start < now:
             timeBucketId = TimeBucket.from_datetime(start).id - 1
@@ -175,7 +175,7 @@ class LabelScheduler:
         print("LabelScheduler: initialize 30days tasks completed")
 
     def schedule_realtime_tasks(self):
-        now = datetime.utcnow().replace(minute=0, second=0, microsecond=0)
+        now = datetime.now()
         timeBucketId = TimeBucket.from_datetime(now).id - 1
         for label in self.labels:
             self.add_task({

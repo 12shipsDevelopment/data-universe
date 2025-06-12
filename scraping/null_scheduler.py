@@ -46,7 +46,7 @@ class NullScheduler:
         self.r.sadd(TASK_COMPLETED_KEY, timeBucketId)
 
     def init_tasks(self, days_back=30):
-        now = datetime.utcnow().replace(minute=0, second=0, microsecond=0)
+        now = datetime.now()
         start = now - timedelta(days=days_back)
         while start < now:
             timeBucketId = TimeBucket.from_datetime(start).id - 1
@@ -60,7 +60,7 @@ class NullScheduler:
         print("NullScheduler: initialize 30days tasks completed")
 
     def schedule_realtime_tasks(self):
-        now = datetime.utcnow().replace(minute=0, second=0, microsecond=0)
+        now = datetime.now()
         timeBucketId = TimeBucket.from_datetime(now).id - 1
         self.add_task({
             "timeBucketId": timeBucketId,

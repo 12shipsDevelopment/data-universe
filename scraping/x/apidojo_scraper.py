@@ -451,7 +451,7 @@ class ApiDojoTwitterScraper(Scraper):
                         # Enhanced fields
                         user_id=tweet.user.id_str, #,user_info['id'],
                         user_display_name=tweet.user.displayname,#user_info['display_name'],
-                        user_verified=tweet.user.verified,#user_info['verified'],
+                        user_verified=tweet.user.verified or tweet.user.blue,#user_info['verified'],
                         # Non-dynamic tweet metadata
                         tweet_id=tweet.id_str,#data.get('id'),
                         is_reply=tweet.inReplyToTweetId is not None,#data.get('isReply', None),

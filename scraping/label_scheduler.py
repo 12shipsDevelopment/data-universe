@@ -106,7 +106,13 @@ DEFAULT_LABELS = [
     "#コレコレ",
     "#大河べらぼう",
     "#مدبرامیر",
-    "#leapdayseriesep9"
+    "#leapdayseriesep9",
+    "#TAO",
+    "#$TAO",
+    "#Bittensor",
+    "#DecentralizedAI",
+    "#DeAI",
+    "#Near"
 ]
 
 class LabelScheduler:
@@ -117,7 +123,8 @@ class LabelScheduler:
 
     def __init__(self, r, labels = DEFAULT_LABELS):
         self.r = r
-        self.labels = labels.reverse()
+        self.labels = labels
+        self.labels.reverse()
 
     def __key(self, label, bucketId):    
         return f"{bucketId}-{label}"

@@ -562,40 +562,43 @@ class ScraperCoordinator:
     async def desirability_task(self, desirability_event: threading.Event, scheduler: LabelScheduler):
         old_label_list = []
         while self.is_running:
+
             while not desirability_event.is_set():
                 await asyncio.sleep(300)
             
             desirability_event.clear()
             bt.logging.info("Running desirability task...")
+            try:
+                script_path = os.path.abspath(__file__)
+                script_dir = os.path.dirname(script_path)
+                target_path = os.path.join(script_dir,"..","dynamic_desirability","total.json")
+                if not os.path.exists(target_path):
+                    bt.logging.info(f"Desirability file {target_path} does not exist, skipping.")
+                    continue
 
-            script_path = os.path.abspath(__file__)
-            script_dir = os.path.dirname(script_path)
-            target_path = os.path.join(script_dir,"..","dynamic_desirability","total.json")
-            if not os.path.exists(target_path):
-                bt.logging.info(f"Desirability file {target_path} does not exist, skipping.")
-                continue
+                with open(target_path, 'r') as f:
+                    default_jobs = json.load(f)
 
-            with open(target_path, 'r') as f:
-                default_jobs = json.load(f)
-
-            label_list = []
-            for job in default_jobs:
-                if "params" in job:
-                    params = job["params"]
-                    if "label" in params and "platform" in params:
-                        if params["label"] in list or params["label"] in scheduler.labels:
-                            continue
-                        if params["platform"] == "x":
-                            bt.logging.info(f"Found label: {params['label']}")
-                            label_list.append(params["label"])
-            if old_label_list == label_list:
-                bt.logging.info("No new labels found, skipping desirability task.")
-                continue
-            scheduler.total=label_list
-            scheduler.init_tasks(label_list)
-            
-            old_label_list = label_list.copy()
-            bt.logging.info("Desirability task completed. Waiting for next trigger.")
+                label_list = []
+                for job in default_jobs:
+                    if "params" in job:
+                        params = job["params"]
+                        if "label" in params and "platform" in params:
+                            if params["label"] in label_list or params["label"] in scheduler.labels:
+                                continue
+                            if params["platform"] == "x":
+                                bt.logging.info(f"Found label: {params['label']}")
+                                label_list.append(params["label"])
+                if old_label_list == label_list:
+                    bt.logging.info("No new labels found, skipping desirability task.")
+                    continue
+                scheduler.total=label_list
+                scheduler.init_tasks(label_list)
+                
+                old_label_list = label_list.copy()
+                bt.logging.info("Desirability task completed. Waiting for next trigger.")
+            except Exception as e:
+                bt.logging.error("Desirability task error: " + traceback.format_exc())
 
 def next_tag(tag: str):
     chars = list(tag)

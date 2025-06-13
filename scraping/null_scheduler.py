@@ -18,28 +18,55 @@ class NullScheduler:
         self.r = r
 
     def get_task(self):
-        task_data = self.r.brpop(TASK_QUEUE_KEY, timeout=5)
+        lua = """
+        local task = redis.call('RPOP', KEYS[1])
+        if task then
+            local obj = cjson.decode(task)
+            redis.call('SREM', KEYS[2], obj.timeBucketId)
+        return task
+        """
+        task_data = self.r.eval(lua, 2, TASK_QUEUE_KEY, TASK_ADDED_KEY)
         if not task_data:
             print("NullScheduler: No new tasks, waiting...")
             return None
 
         _, raw_task = task_data
         task = json.loads(raw_task)
-        self.r.srem(TASK_ADDED_KEY, task["timeBucketId"])
-        # task["timeBucketId"] task["contentSizeBytes"] task["cursor"]
         return task
 
     '''
     null scraper放回来的时候应该left=False
     '''
     def add_task(self, task, left=True):
-        timeBucketId = task["timeBucketId"]
-        if not self.r.sismember(TASK_ADDED_KEY, timeBucketId) and not self.r.sismember(TASK_COMPLETED_KEY, timeBucketId):
-            if left:
-                self.r.lpush(TASK_QUEUE_KEY, json.dumps(task))
-            else:
-                self.r.rpush(TASK_QUEUE_KEY, json.dumps(task))
-            self.r.sadd(TASK_ADDED_KEY, timeBucketId)
+        lua = """
+            local task = cjson.decode(ARGV[1])
+            local timeBucketId = task.timeBucketId
+            local left = tonumber(ARGV[2]) == 1  -- 1 for true, 0 for false
+
+            -- Check if timeBucketId exists in either set
+            local inAdded = redis.call('SISMEMBER', KEYS[1], timeBucketId)
+            local inCompleted = redis.call('SISMEMBER', KEYS[2], timeBucketId)
+
+            if inAdded == 0 and inCompleted == 0 then
+                -- Add to queue based on 'left' flag
+                if left == 1 then
+                    redis.call('LPUSH', KEYS[3], ARGV[1])
+                else
+                    redis.call('RPUSH', KEYS[3], ARGV[1])
+                end
+                -- Add to added set
+                redis.call('SADD', KEYS[1], timeBucketId)
+                return 1  -- Indicate task was added
+            end
+            return 0  -- Indicate task was not added
+        """
+        added = self.r.eval(lua, 3, 
+                   TASK_ADDED_KEY, 
+                   TASK_COMPLETED_KEY, 
+                   TASK_QUEUE_KEY,
+                   json.dumps(task),
+                   1 if left else 0)
+        if added:
             print("NullScheduler: Added new task: ", task)
 
     def complete_task(self, timeBucketId):

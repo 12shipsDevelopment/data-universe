@@ -71,6 +71,7 @@ class MySQLMinerStorage(MinerStorage):
             "connect_timeout": int(os.environ.get("DB_CONNECT_TIMEOUT", 10)),
             "read_timeout": int(os.environ.get("DB_READ_TIMEOUT", 60)),
             "write_timeout": int(os.environ.get("DB_WRITE_TIMEOUT", 60)),
+            "isolation_level": "READ COMMITTED",
         }
 
         self.pool = pooling.MySQLConnectionPool(
@@ -86,6 +87,9 @@ class MySQLMinerStorage(MinerStorage):
 
         with contextlib.closing(self._create_connection()) as connection:
             with contextlib.closing(connection.cursor(buffered=True)) as cursor:
+                cursor.execute("SELECT @@transaction_isolation")
+                print("isolation level:", cursor.fetchone()[0])
+
                 # Create the DataEntity table (if it does not already exist).
                 cursor.execute(MySQLMinerStorage.DATA_ENTITY_TABLE_CREATE)
 

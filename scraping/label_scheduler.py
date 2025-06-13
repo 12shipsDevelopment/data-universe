@@ -125,6 +125,7 @@ class LabelScheduler:
         self.r = r
         self.labels = labels
         self.total = []
+        self.trends = []
         self.labels.reverse()
 
     def __key(self, label, bucketId):    
@@ -178,7 +179,7 @@ class LabelScheduler:
     def schedule_realtime_tasks(self):
         now = datetime.now()
         timeBucketId = TimeBucket.from_datetime(now).id - 1
-        for label in self.labels + self.total:
+        for label in self.labels + self.trends + self.total:
             if label.startswith('#'):
                 self.add_task({
                     "timeBucketId": timeBucketId,

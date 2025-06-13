@@ -236,10 +236,6 @@ class ScraperCoordinator:
         #     )
         #     workers.append(worker)
 
-        if os.environ.get("SUPPORT_TRENDS", "false") != "false":
-            trends_task = asyncio.create_task(self.trends_task())
-            workers.append(trends_task)
-
         if os.environ.get("CLEANUP_DATABASE", "false") != "false":
             cleanup_task = asyncio.create_task(self.delete_outdate_data_task())
             workers.append(cleanup_task)
@@ -278,6 +274,10 @@ class ScraperCoordinator:
             if os.environ.get("LABEL_DESIRABILITY", "false") != "false":
                 desirability_task = asyncio.create_task(self.desirability_task(self.desirablility_event, scheduler))
                 workers.append(desirability_task)
+            
+            if os.environ.get("LABEL_TRENDING", "false") != "false":
+                trends_task = asyncio.create_task(self.trends_task(scheduler))
+                workers.append(trends_task)
 
         while self.is_running:
             await asyncio.sleep(5)
@@ -333,51 +333,6 @@ class ScraperCoordinator:
             except Exception as e:
                 bt.logging.error("Worker " + name + ": " + traceback.format_exc())
 
-
-     # Add hourly task
-    async def trends_task(self):
-        """Runs hourly tasks, such as scraping trends."""
-        bt.logging.info("Starting trends tasks...")
-        await asyncio.sleep(5)
-        while self.is_running:
-            try:
-                now = dt.datetime.utcnow()
-                bt.logging.info("Running trends tasks...")
-
-                # Get the trends labels
-                api = API(AccountsPool())
-
-                literal_values = ["trending", "news", "sport", "entertainment"]
-                trends_labels = []
-                for literal_value in literal_values:
-                    trends = api.trends(literal_value)
-                    async for trend in trends:
-                        trends_labels.append(trend.name)
-                # Remove duplicates
-                trends_labels = list(set(trends_labels))
-                bt.logging.info(f"Trends labels: {trends_labels}")
-
-                scraper = self.provider.get(ScraperId.X_APIDOJO)
-                current_bucket = TimeBucket.from_datetime(now-dt.timedelta(minutes=60))
-                date_range = TimeBucket.to_date_range(TimeBucket(id=current_bucket.id))
-                for label in trends_labels:
-                    if label.startswith("#"):
-                        config = ScrapeConfig(
-                            entity_limit=self.config.scraper_configs[ScraperId.X_APIDOJO].labels_to_scrape[0].max_data_entities,
-                            date_range=date_range,
-                            labels=[DataLabel(value = label)]
-                        )
-                        bt.logging.info(f"Adding trends label scrape task for {ScraperId.X_APIDOJO}: {config}.")
-                        self.queue.put_nowait(functools.partial(scraper.scrape, config))
-
-                self.tracker.on_scrape_scheduled(ScraperId.X_APIDOJO, now)
-                # Calculate time until next hour
-                next_hour = (now.replace(minute=1, second=0, microsecond=0) +
-                            dt.timedelta(hours=1))
-                wait_seconds = (next_hour - now).total_seconds()
-                await asyncio.sleep(wait_seconds)
-            except Exception as e:
-                bt.logging.error("Trends : " + traceback.format_exc())
 
     async def null_scraping_task(self, scheduler: NullScheduler, shutdown_event: threading.Event):
         """Runs periodic null bucket scraping tasks using timebuckets."""
@@ -585,7 +540,7 @@ class ScraperCoordinator:
                     if "params" in job:
                         params = job["params"]
                         if "label" in params and "platform" in params:
-                            if params["label"] in label_list or params["label"] in scheduler.labels:
+                            if params["label"] in scheduler.trends or params["label"] in scheduler.labels:
                                 continue
                             if params["platform"] == "x":
                                 bt.logging.info(f"Found label: {params['label']}")
@@ -600,6 +555,46 @@ class ScraperCoordinator:
                 bt.logging.info("Desirability task completed. Waiting for next trigger.")
             except Exception as e:
                 bt.logging.error("Desirability task error: " + traceback.format_exc())
+
+
+     # Add hourly task
+    async def trends_task(self, scheduler: LabelScheduler):
+        """Runs hourly tasks, such as scraping trends."""
+        bt.logging.info("Starting trends tasks...")
+        api = API(AccountsPool())
+        await asyncio.sleep(5)
+        while self.is_running:
+            try:
+                now = dt.datetime.utcnow()
+                bt.logging.info("Running trends tasks...")
+
+                # Get the trends labels
+
+                literal_values = ["trending", "news", "sport", "entertainment"]
+                trends_labels = []
+                for literal_value in literal_values:
+                    trends = api.trends(literal_value)
+                    async for trend in trends:
+                        if trend.name and trend.name.startswith("#"):
+                            if trend.name in scheduler.total or trend.name in scheduler.labels:
+                                continue
+                            # Only add hashtags
+                            trends_labels.append(trend.name)
+                # Remove duplicates
+                trends_labels = list(set(trends_labels))
+                bt.logging.info(f"Trends labels: {trends_labels}")
+
+                scheduler.trends=trends_labels
+                scheduler.init_tasks(trends_labels)
+
+
+                next_hour = (now.replace(minute=0, second=0, microsecond=0) +
+                            dt.timedelta(hours=1))
+                wait_seconds = (next_hour - now).total_seconds()
+                await asyncio.sleep(wait_seconds)
+            except Exception as e:
+                bt.logging.error("Trends : " + traceback.format_exc())
+
 
 def next_tag(tag: str):
     chars = list(tag)

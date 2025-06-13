@@ -648,7 +648,7 @@ class MySQLMinerStorage(MinerStorage):
                     delete from DataEntity
                     where timeBucketId < %s
                     limit 1000;
-                    """, oldest_bucket_id)
+                    """, [oldest_bucket_id])
 
                     t2 = time.time()
 

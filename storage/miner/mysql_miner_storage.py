@@ -21,6 +21,9 @@ from storage.miner.miner_storage import MinerStorage
 from typing import Dict, List
 import bittensor as bt
 from scraping.x.model import XContent
+
+import time
+
 class UTCDateTimeConverter(mysql.connector.conversion.MySQLConverter):
     def _DATETIME_to_python(self, value, desc=None):
         dt = super()._DATETIME_to_python(value, desc)
@@ -628,8 +631,34 @@ class MySQLMinerStorage(MinerStorage):
         
         with contextlib.closing(self._create_connection()) as connection:
             with contextlib.closing(connection.cursor(buffered=True)) as cursor:
-                cursor.execute("SELECT MIN(timeBucketId) FROM Dataentity;")
-                min_bucket = cursor.fetchall()[0][0]
-                values = [[i] for i in range(min_bucket, oldest_bucket_id)]
-                cursor.executemany("DELETE FROM DataEntity WHERE timeBucketId = %s;",values)
-                connection.commit()
+                # cursor.execute("SELECT MIN(timeBucketId) FROM Dataentity;")
+                # min_bucket = cursor.fetchall()[0][0]
+                # values = [[i] for i in range(min_bucket, oldest_bucket_id)]
+                # cursor.executemany("DELETE FROM DataEntity WHERE timeBucketId = %s;",values)
+                # connection.commit()
+
+                while True:
+                    t1 = time.time()
+
+                    cursor.execute("""
+                    delete from DataEntity
+                    where timeBucketId < %s
+                    limit 1000;
+                    """, oldest_bucket_id)
+
+                    t2 = time.time()
+
+                    deleted_rows = cursor.rowcount
+                    connection.commit()
+
+                    t3 = time.time()
+
+                    exec_time = t2 - t1
+                    commit_time = t3 - t2
+
+                    print(f"[,{oldest_bucket_id}] Deleted {deleted_rows} rows | SQL: {exec_time:.2f}s | Commit: {commit_time}s.")
+
+                    if deleted_rows == 0:
+                        break
+
+                    time.sleep(5)

@@ -661,4 +661,4 @@ class MySQLMinerStorage(MinerStorage):
                     if deleted_rows == 0:
                         break
 
-                    time.sleep(5)
+                    time.sleep(1)

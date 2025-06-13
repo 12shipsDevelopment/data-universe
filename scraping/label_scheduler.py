@@ -133,19 +133,25 @@ class LabelScheduler:
 
     def get_task(self):
         lua = """
-        local task = redis.call('RPOP', KEYS[1])
-        if task then
-            local obj = cjson.decode(task)
-            redis.call('SREM', KEYS[2], obj.timeBucketId)
-        return task
+        local task_data = redis.call('RPOP', KEYS[1])
+        if not task_data then
+            return nil
+        end
+
+        local task = cjson.decode(task_data)
+
+        -- 使用 bucketId-label 格式生成 key
+        local set_key = task.timeBucketId .. "-" .. task.label
+        redis.call('SREM', KEYS[2], set_key)
+
+        return task_data
         """
         task_data = self.r.eval(lua, 2, TASK_QUEUE_KEY, TASK_ADDED_KEY)
         if not task_data:
             print("LabelScheduler: No new tasks, waiting...")
             return None
 
-        _, raw_task = task_data
-        task = json.loads(raw_task)
+        task = json.loads(task_data)
         return task
 
     '''
@@ -153,33 +159,30 @@ class LabelScheduler:
     '''
     def add_task(self, task, left=True):
         lua = """
-            local task = cjson.decode(ARGV[1])
-            local timeBucketId = task.timeBucketId
-            local left = tonumber(ARGV[2]) == 1  -- 1 for true, 0 for false
+            local in_added = redis.call('SISMEMBER', KEYS[1], ARGV[2])
+            local in_completed = redis.call('SISMEMBER', KEYS[2], ARGV[2])
 
-            -- Check if timeBucketId exists in either set
-            local inAdded = redis.call('SISMEMBER', KEYS[1], timeBucketId)
-            local inCompleted = redis.call('SISMEMBER', KEYS[2], timeBucketId)
-
-            if inAdded == 0 and inCompleted == 0 then
-                -- Add to queue based on 'left' flag
-                if left == 1 then
+            if in_added == 0 and in_completed == 0 then
+                -- Add to queue based on left flag
+                if ARGV[3] == "1" then
                     redis.call('LPUSH', KEYS[3], ARGV[1])
                 else
                     redis.call('RPUSH', KEYS[3], ARGV[1])
                 end
                 -- Add to added set
-                redis.call('SADD', KEYS[1], timeBucketId)
-                return 1  -- Indicate task was added
+                redis.call('SADD', KEYS[1], ARGV[2])
+                return 1  -- Success
             end
-            return 0  -- Indicate task was not added
+            return 0  -- Not added
         """
-        added = self.r.eval(lua, 3, 
-                   TASK_ADDED_KEY, 
-                   TASK_COMPLETED_KEY, 
+        key = self.__key(task['label'], task['timeBucketId'])
+        added = self.r.eval(lua, 3,
+                   TASK_ADDED_KEY,
+                   TASK_COMPLETED_KEY,
                    TASK_QUEUE_KEY,
                    json.dumps(task),
-                   1 if left else 0)
+                   key,
+                   "1" if left else "0")
         if added:
             print("LabelScheduler: Added new task: ", task)
 

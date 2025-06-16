@@ -654,6 +654,8 @@ class MySQLMinerStorage(MinerStorage):
                 # cursor.executemany("DELETE FROM DataEntity WHERE timeBucketId = %s;",values)
                 # connection.commit()
 
+                t_start = time.time()
+                rows = 0
                 while True:
                     t1 = time.time()
 
@@ -666,6 +668,7 @@ class MySQLMinerStorage(MinerStorage):
                     t2 = time.time()
 
                     deleted_rows = cursor.rowcount
+                    rows += deleted_rows 
                     connection.commit()
 
                     t3 = time.time()
@@ -678,4 +681,8 @@ class MySQLMinerStorage(MinerStorage):
                     if deleted_rows == 0:
                         break
 
-                    time.sleep(1)
+                    time.sleep(1) 
+
+                t_end = time.time()
+                total_time = t_end - t_start
+                print(f"Deleted {rows} rows <{oldest_bucket_id} totalcost {total_time:.2f}s")

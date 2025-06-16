@@ -321,21 +321,35 @@ class MySQLMinerStorage(MinerStorage):
                     if running_size >= constants.DATA_ENTITY_BUCKET_SIZE_LIMIT_BYTES:
                         return data_entities
                     else:
-                        content_str = row[5].decode("utf-8")
-                        content = XContent.parse_raw(content_str)
-                        # Construct the new DataEntity with all non null columns.
-                        data_entity = DataEntity(
-                            uri=row[0],
-                            datetime=content.timestamp.replace(second=row[1].second),
-                            source=DataSource(row[3]),
-                            content=row[5],
-                            content_size_bytes=row[6],
-                            label=DataLabel(value=row[4]) if row[4] != "NULL" else None
-                        )
-                        bt.logging.debug( 
-                            f"Adding data entity {data_entity} to bucket {data_entity_bucket_id}"
-                        )
-                        data_entities.append(data_entity)
+                        if row[3] == DataSource.X:
+                            content_str = row[5].decode("utf-8")
+                            content = XContent.parse_raw(content_str)
+                            # Construct the new DataEntity with all non null columns.
+                            data_entity = DataEntity(
+                                uri=row[0],
+                                datetime=content.timestamp.replace(second=row[1].second),
+                                source=DataSource(row[3]),
+                                content=row[5],
+                                content_size_bytes=row[6],
+                                label=DataLabel(value=row[4]) if row[4] != "NULL" else None
+                            )
+                            bt.logging.debug( 
+                                f"Adding X data entity {data_entity} to bucket {data_entity_bucket_id}"
+                            )
+                            data_entities.append(data_entity)
+                        else:
+                            data_entity = DataEntity(
+                                uri=row[0],
+                                datetime=row[1],
+                                source=DataSource(row[3]),
+                                content=row[5],
+                                content_size_bytes=row[6],
+                                label=DataLabel(value=row[4]) if row[4] != "NULL" else None
+                            )
+                            bt.logging.debug(
+                                f"Adding reddit/youtube data entity {data_entity} to bucket {data_entity_bucket_id}"
+                            )
+                            data_entities.append(data_entity)
                         running_size += row[6]
                 end = dt.datetime.now()
                 bt.logging.info(

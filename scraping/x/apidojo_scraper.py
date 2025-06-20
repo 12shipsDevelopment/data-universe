@@ -450,7 +450,7 @@ class ApiDojoTwitterScraper(Scraper):
                         media=media_urls if media_urls else None,
                         # Enhanced fields
                         user_id=tweet.user.id_str, #,user_info['id'],
-                        user_display_name=tweet.user.displayname,#user_info['display_name'],
+                        #user_display_name=tweet.user.displayname,#user_info['display_name'], 
                         user_verified=tweet.user.verified or tweet.user.blue,#user_info['verified'],
                         # Non-dynamic tweet metadata
                         tweet_id=tweet.id_str,#data.get('id'),

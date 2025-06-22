@@ -348,9 +348,7 @@ class ScraperCoordinator:
 
                 now = dt.datetime.now()
                 if not task:
-                    next_bucket_start = now.replace(minute=0, second=0, microsecond=0) + dt.timedelta(hours=1)
-                    wait_seconds = (next_bucket_start - now).total_seconds()
-                    bt.logging.info(f"no null bucket to scrape, sleep to {next_bucket_start}, total {wait_seconds}s")
+                    wait_seconds = dt.timedelta(minutes=2).total_seconds()
                     await asyncio.sleep(wait_seconds)
                     continue
 
@@ -439,9 +437,7 @@ class ScraperCoordinator:
 
                 now = dt.datetime.now()
                 if not task:
-                    next_bucket_start = now.replace(minute=0, second=0, microsecond=0) + dt.timedelta(hours=1)
-                    wait_seconds = (next_bucket_start - now).total_seconds()
-                    bt.logging.info(f"no label bucket to scrape, sleep to {next_bucket_start}, total {wait_seconds}s")
+                    wait_seconds = dt.timedelta(minutes=2).total_seconds()
                     await asyncio.sleep(wait_seconds)
                     continue
 

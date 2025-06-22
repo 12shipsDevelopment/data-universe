@@ -21,7 +21,7 @@ from scraping.null_scraping import NullScraper
 from scraping.null_scheduler import NullScheduler
 from scraping.label_scheduler import LabelScheduler
 from scraping.label_scraping import LabelScraper
-
+import redis
 
 class LabelScrapingConfig(StrictBaseModel):
     """Describes what labels to scrape."""

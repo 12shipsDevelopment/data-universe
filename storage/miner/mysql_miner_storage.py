@@ -333,7 +333,7 @@ class MySQLMinerStorage(MinerStorage):
                                 datetime=content.timestamp.replace(second=row[1].second),
                                 source=DataSource(row[3]),
                                 content=row[5],
-                                content_size_bytes=row[6],
+                                content_size_bytes=int(row[6]),
                                 label=DataLabel(value=row[4]) if row[4] != "NULL" else None
                             )
                             bt.logging.debug( 
@@ -343,10 +343,10 @@ class MySQLMinerStorage(MinerStorage):
                         else:
                             data_entity = DataEntity(
                                 uri=row[0],
-                                datetime=row[1],
+                                datetime=row[1].replace(tzinfo=dt.timezone.utc),
                                 source=DataSource(row[3]),
                                 content=row[5],
-                                content_size_bytes=row[6],
+                                content_size_bytes=int(row[6]),
                                 label=DataLabel(value=row[4]) if row[4] != "NULL" else None
                             )
                             bt.logging.debug(
@@ -422,7 +422,7 @@ class MySQLMinerStorage(MinerStorage):
                     constants.DATA_ENTITY_BUCKET_SIZE_LIMIT_BYTES
                     if row[0]
                     >= constants.DATA_ENTITY_BUCKET_SIZE_LIMIT_BYTES
-                    else row[0]
+                    else int(row[0])
                 )
 
                 label = row[3] if row[3] != "NULL" else None

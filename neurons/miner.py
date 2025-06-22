@@ -55,6 +55,7 @@ from scraping.scraper import ScrapeConfig, ScraperId
 
 from scraping.x.enhanced_apidojo_scraper import EnhancedApiDojoTwitterScraper
 import json
+import redis
 
 # Enable logging to the miner TODO move it to some different location
 bt.logging.set_info(True)
@@ -172,8 +173,22 @@ class Miner:
                 state_file=self.config.miner_upload_state_file,
             )
 
+        self.redis = redis.Redis(
+            host=os.environ.get("REDIS_HOST", "127.0.0.1"), 
+            port=int(os.environ.get("REDIS_PORT", "6379")), 
+            db=0, 
+            password=os.environ.get("REDIS_PASSWORD", "")
+        )
+        bt.logging.success(
+            f"Successfully connected to redis."
+        )
+
         # Instantiate storage.
-        self.storage = MySQLMinerStorage(host = os.environ.get("DATABASE_HOST","localhost"), database=os.environ.get("DATABASE_NAME","sn13"))
+        self.storage = MySQLMinerStorage(
+            host = os.environ.get("DATABASE_HOST","localhost"), 
+            database=os.environ.get("DATABASE_NAME","sn13"),
+            redis=self.redis
+        )
 
         bt.logging.success(
             f"Successfully connected to miner storage: {self.config.neuron.database_name}."
@@ -388,10 +403,13 @@ class Miner:
             self.should_exit = False
             self.thread = threading.Thread(target=self.run, daemon=True)
             self.thread.start()
-            self.compressed_index_refresh_thread = threading.Thread(
-                target=self.refresh_index, daemon=True
-            )
-            self.compressed_index_refresh_thread.start()
+
+            if os.environ.get("USE_CACHE_INDEX", "false").lower() == "false":
+                self.compressed_index_refresh_thread = threading.Thread(
+                    target=self.refresh_index, daemon=True
+                )
+                self.compressed_index_refresh_thread.start()
+
             self.lookup_thread = threading.Thread(
                 target=self.get_updated_lookup, daemon=True
             )
@@ -490,11 +508,14 @@ class Miner:
             bt.logging.error(f"Unsupported protocol version: {synapse.version}.")
             return synapse
 
-        # Return the appropriate amount of max buckets based on protocol of the requesting validator.
-        compressed_index = self.storage.get_compressed_index(
-            bucket_count_limit=constants.DATA_ENTITY_BUCKET_COUNT_LIMIT_PER_MINER_INDEX_PROTOCOL_4
-        )
-        synapse.compressed_index_serialized = compressed_index.model_dump_json()
+        if os.environ.get("USE_CACHE_INDEX", "false").lower() == "true" and self.redis.exists('index'):
+            synapse.compressed_index_serialized = self.redis.get('index')
+        else:
+            # Return the appropriate amount of max buckets based on protocol of the requesting validator.
+            compressed_index = self.storage.get_compressed_index(
+                bucket_count_limit=constants.DATA_ENTITY_BUCKET_COUNT_LIMIT_PER_MINER_INDEX_PROTOCOL_4
+            )
+            synapse.compressed_index_serialized = compressed_index.model_dump_json()
         bt.logging.success(
             f"Returning compressed miner index of {CompressedMinerIndex.size_bytes(compressed_index)} bytes "
             + f"across {CompressedMinerIndex.bucket_count(compressed_index)} buckets to {synapse.dendrite.hotkey}."

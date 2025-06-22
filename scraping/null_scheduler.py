@@ -23,6 +23,7 @@ class NullScheduler:
         if task then
             local obj = cjson.decode(task)
             redis.call('SREM', KEYS[2], obj.timeBucketId)
+        end
         return task
         """
         task_data = self.r.eval(lua, 2, TASK_QUEUE_KEY, TASK_ADDED_KEY)

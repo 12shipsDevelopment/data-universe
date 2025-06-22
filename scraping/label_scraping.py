@@ -323,6 +323,7 @@ class LabelScraper:
             "source": source if source is not None else DataSource.X
         }
 
+        new_cursor = None
         # Start consumer
         consumer_task = asyncio.create_task(self.process_tweets_consumer(output_queue))
         

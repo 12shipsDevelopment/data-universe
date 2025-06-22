@@ -538,7 +538,7 @@ class ScraperCoordinator:
                         if "label" in params and "platform" in params:
                             if params["label"] in scheduler.trends or params["label"] in scheduler.labels:
                                 continue
-                            if params["platform"] == "x":
+                            if params["platform"] == "x" or params["platform"] == "reddit":
                                 bt.logging.info(f"Found label: {params['label']}")
                                 label_list.append(params["label"])
                 if old_label_list == label_list:

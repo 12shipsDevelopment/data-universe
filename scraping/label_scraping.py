@@ -11,8 +11,6 @@ from common.date_range import DateRange
 import bittensor as bt
 from scraping.label_scheduler import LabelScheduler
 import threading
-from scraping.reddit.reddit_lite_scraper import RedditLiteScraper
-from scraping.scraper import ScrapeConfig
 
 class SizeAwareQueue:
     """Thread-safe queue with size tracking"""

@@ -21,6 +21,7 @@ from storage.miner.miner_storage import MinerStorage
 from typing import Dict, List
 import bittensor as bt
 from scraping.x.model import XContent
+from concurrent.futures import ThreadPoolExecutor
 
 import time
 
@@ -397,22 +398,23 @@ class MySQLMinerStorage(MinerStorage):
                     ).id
 
                     # Get sum of content_size_bytes for all rows grouped by DataEntityBucket.
-                    cursor.execute(
-                        """SELECT SUM(contentSizeBytes) AS bucketSize, timeBucketId, source, label FROM DataEntity
-                                WHERE timeBucketId >= %s
-                                GROUP BY timeBucketId, label, source
-                                ORDER BY bucketSize DESC
-                                LIMIT %s
-                                """,
-                        [
-                            oldest_time_bucket_id,
-                            constants.DATA_ENTITY_BUCKET_COUNT_LIMIT_PER_MINER_INDEX_PROTOCOL_4,
-                        ],  # Always get the max for caching and truncate to each necessary size.
-                    )
+                    # cursor.execute(
+                    #     """SELECT SUM(contentSizeBytes) AS bucketSize, timeBucketId, source, label FROM DataEntity
+                    #             WHERE timeBucketId >= %s
+                    #             GROUP BY timeBucketId, label, source
+                    #             ORDER BY bucketSize DESC
+                    #             LIMIT %s
+                    #             """,
+                    #     [
+                    #         oldest_time_bucket_id,
+                    #         constants.DATA_ENTITY_BUCKET_COUNT_LIMIT_PER_MINER_INDEX_PROTOCOL_4,
+                    #     ],  # Always get the max for caching and truncate to each necessary size.
+                    # )
+                    results = self.concurrent_query_all_buckets(start_bucket=oldest_time_bucket_id)
 
                     buckets_by_source_by_label = defaultdict(dict)
 
-                    for row in cursor:
+                    for row in results:
                         # Ensure the miner does not attempt to report more than the max DataEntityBucket size.
                         size = (
                             constants.DATA_ENTITY_BUCKET_SIZE_LIMIT_BYTES
@@ -686,3 +688,76 @@ class MySQLMinerStorage(MinerStorage):
                 t_end = time.time()
                 total_time = t_end - t_start
                 print(f"Deleted {rows} rows <{oldest_bucket_id} totalcost {total_time:.2f}s")
+
+    def query_single_bucket(self, bucket_id: int) -> list:
+        """
+        查询单个桶的数据总和
+        :param bucket_id: 要查询的桶ID
+        :return: 该桶的contentSizeBytes总和
+        """
+        query = """
+            SELECT SUM(contentSizeBytes) AS bucketSize, timeBucketId, source, label 
+            FROM dataentity 
+            WHERE timeBucketId = %s 
+            GROUP BY label, source
+        """
+        
+        conn = None
+        cursor = None
+        try:
+            conn = self._create_connection()
+            cursor = conn.cursor(buffered=True)
+            
+            cursor.execute(query, (bucket_id,))
+            
+            # 处理分组结果，将所有分组的值相加
+            results = []
+            for row in cursor:
+                results.append(row)
+                    
+            return results
+        except Exception as e:
+            print(f"查询桶 {bucket_id} 时出错: {str(e)}")
+            return []
+        finally:
+            if cursor and cursor.is_connected():
+                cursor.close()
+            if conn and conn.is_connected():
+                conn.close()
+
+    def concurrent_query_all_buckets(self, start_bucket: int = 486000, num_buckets: int = 720, max_workers: int = 20):
+        """
+        并发查询多个桶并汇总结果
+        :param start_bucket: 起始桶ID
+        :param num_buckets: 要查询的桶数量
+        :param max_workers: 最大并发线程数
+        :return: 所有桶的contentSizeBytes总和
+        """
+        bucket_ids = range(start_bucket, start_bucket + num_buckets)
+        
+        start_time = time.time()
+        
+        total_results = []
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # 使用executor.map并发执行查询
+            results = executor.map(self.query_single_bucket, bucket_ids)
+            
+            # 汇总所有结果
+            for result in results:
+                total_results.extend(result)
+        
+        end_time = time.time()
+        
+        print(f"查询完成! 共查询 {num_buckets} 个桶, 共 {len(total_results)} 条记录")
+        print(f"总耗时: {end_time - start_time:.2f} 秒")
+
+        
+        start_time = time.time()
+        sorted_items = sorted(total_results, key=lambda x: int(x[0]), reverse=True)
+        
+        end_time = time.time()
+        print(f"排序总耗时: {end_time - start_time:.2f} 秒")
+
+        # 返回前top_n个元素
+        return sorted_items[:350000]
+    

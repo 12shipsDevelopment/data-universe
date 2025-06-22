@@ -192,7 +192,8 @@ class ScraperCoordinator:
         miner_storage: MinerStorage,
         config: CoordinatorConfig,
         shutdown_event: threading.Event,
-        desirablility_event: threading.Event
+        desirablility_event: threading.Event,
+        redis: redis.Redis,
     ):
         self.provider = scraper_provider
         self.storage = miner_storage
@@ -205,6 +206,7 @@ class ScraperCoordinator:
         
         self.shutdown_event = shutdown_event
         self.desirablility_event = desirablility_event
+        self.redis = redis
 
 
     def run_in_background_thread(self):
@@ -242,11 +244,7 @@ class ScraperCoordinator:
 
         scheduler = None
         if os.environ.get("SUPPORT_NULL", "false") != "false":
-            scheduler = NullScheduler.from_conn(
-                host=os.environ.get("REDIS_HOST", "127.0.0.1"), 
-                port=int(os.environ.get("REDIS_PORT", "6379")), 
-                password=os.environ.get("REDIS_PASSWORD", "")
-            )
+            scheduler = NullScheduler(self.redis)
             if os.environ.get("NULL_INIT_TASKS", "false") != "false":
                 scheduler.init_tasks()
                 schedule_task = asyncio.create_task(self.schedule_realtime_task(scheduler))
@@ -257,11 +255,7 @@ class ScraperCoordinator:
                 workers.append(null_task)
 
         if os.environ.get("SUPPORT_LABEL", "false") != "false":
-            scheduler = LabelScheduler.from_conn(
-                host=os.environ.get("REDIS_HOST", "127.0.0.1"), 
-                port=int(os.environ.get("REDIS_PORT", "6379")), 
-                password=os.environ.get("REDIS_PASSWORD", "")
-            )
+            scheduler = LabelScheduler(self.redis)
             if os.environ.get("LABEL_INIT_TASKS", "false") != "false":
                 scheduler.init_tasks(scheduler.labels)
                 schedule_task = asyncio.create_task(self.schedule_label_realtime_task(scheduler))

@@ -58,8 +58,10 @@ class MySQLMinerStorage(MinerStorage):
             user='taos',
             password='taos@2025',
             database='sn13',
-            max_database_size_gb_hint=250
+            max_database_size_gb_hint=250,
+            redis=None,
         ):
+        self.redis=redis
         self.database = database
         self.connection_config = {
             'host': host,
@@ -447,6 +449,10 @@ class MySQLMinerStorage(MinerStorage):
                         for source, labels_to_buckets in buckets_by_source_by_label.items()
                     }
                 )
+                if self.redis is not None:
+                    self.redis.set("index", self.cached_index_4.model_dump_json())
+                    bt.logging.success(f"Update index in redis")
+
                 self.cached_index_updated = dt.datetime.now()
                 bt.logging.success(
                     f"Created cached index of {CompressedMinerIndex.size_bytes(self.cached_index_4)} bytes "

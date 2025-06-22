@@ -212,7 +212,8 @@ class Miner:
             miner_storage=self.storage,
             config=scraping_config,
             shutdown_event = self.shutdown_event,
-            desirablility_event = self.desirablility_event
+            desirablility_event = self.desirablility_event,
+            redis=self.redis,
         )
 
         # Configure per hotkey per request limits.

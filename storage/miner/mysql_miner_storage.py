@@ -390,68 +390,68 @@ class MySQLMinerStorage(MinerStorage):
                     )
                     return
 
-            with contextlib.closing(self._create_connection()) as connection:
-                with contextlib.closing(connection.cursor(buffered=True)) as cursor:
-                    oldest_time_bucket_id = TimeBucket.from_datetime(
-                        dt.datetime.now()
-                        - dt.timedelta(constants.DATA_ENTITY_BUCKET_AGE_LIMIT_DAYS)
-                    ).id
+            # with contextlib.closing(self._create_connection()) as connection:
+            #     with contextlib.closing(connection.cursor(buffered=True)) as cursor:
+            oldest_time_bucket_id = TimeBucket.from_datetime(
+                dt.datetime.now()
+                - dt.timedelta(constants.DATA_ENTITY_BUCKET_AGE_LIMIT_DAYS)
+            ).id
 
-                    # Get sum of content_size_bytes for all rows grouped by DataEntityBucket.
-                    # cursor.execute(
-                    #     """SELECT SUM(contentSizeBytes) AS bucketSize, timeBucketId, source, label FROM DataEntity
-                    #             WHERE timeBucketId >= %s
-                    #             GROUP BY timeBucketId, label, source
-                    #             ORDER BY bucketSize DESC
-                    #             LIMIT %s
-                    #             """,
-                    #     [
-                    #         oldest_time_bucket_id,
-                    #         constants.DATA_ENTITY_BUCKET_COUNT_LIMIT_PER_MINER_INDEX_PROTOCOL_4,
-                    #     ],  # Always get the max for caching and truncate to each necessary size.
-                    # )
-                    results = self.concurrent_query_all_buckets(start_bucket=oldest_time_bucket_id)
+            # Get sum of content_size_bytes for all rows grouped by DataEntityBucket.
+            # cursor.execute(
+            #     """SELECT SUM(contentSizeBytes) AS bucketSize, timeBucketId, source, label FROM DataEntity
+            #             WHERE timeBucketId >= %s
+            #             GROUP BY timeBucketId, label, source
+            #             ORDER BY bucketSize DESC
+            #             LIMIT %s
+            #             """,
+            #     [
+            #         oldest_time_bucket_id,
+            #         constants.DATA_ENTITY_BUCKET_COUNT_LIMIT_PER_MINER_INDEX_PROTOCOL_4,
+            #     ],  # Always get the max for caching and truncate to each necessary size.
+            # )
+            results = self.concurrent_query_all_buckets(start_bucket=oldest_time_bucket_id)
 
-                    buckets_by_source_by_label = defaultdict(dict)
+            buckets_by_source_by_label = defaultdict(dict)
 
-                    for row in results:
-                        # Ensure the miner does not attempt to report more than the max DataEntityBucket size.
-                        size = (
-                            constants.DATA_ENTITY_BUCKET_SIZE_LIMIT_BYTES
-                            if row[0]
-                            >= constants.DATA_ENTITY_BUCKET_SIZE_LIMIT_BYTES
-                            else row[0]
-                        )
+            for row in results:
+                # Ensure the miner does not attempt to report more than the max DataEntityBucket size.
+                size = (
+                    constants.DATA_ENTITY_BUCKET_SIZE_LIMIT_BYTES
+                    if row[0]
+                    >= constants.DATA_ENTITY_BUCKET_SIZE_LIMIT_BYTES
+                    else row[0]
+                )
 
-                        label = row[3] if row[3] != "NULL" else None
+                label = row[3] if row[3] != "NULL" else None
 
-                        bucket = buckets_by_source_by_label[DataSource(row[2])].get(
-                            label, CompressedEntityBucket(label=label)
-                        )
-                        bucket.sizes_bytes.append(size)
-                        bucket.time_bucket_ids.append(row[1])
-                        buckets_by_source_by_label[DataSource(row[2])][
-                            label
-                        ] = bucket
+                bucket = buckets_by_source_by_label[DataSource(row[2])].get(
+                    label, CompressedEntityBucket(label=label)
+                )
+                bucket.sizes_bytes.append(size)
+                bucket.time_bucket_ids.append(row[1])
+                buckets_by_source_by_label[DataSource(row[2])][
+                    label
+                ] = bucket
 
-                    end = dt.datetime.now()
-                    bt.logging.info(
-                        f"Compressed index refresh took {(end - start).total_seconds():.2f} seconds."
-                    )
-                    # Convert the buckets_by_source_by_label into a list of lists of CompressedEntityBucket and return
-                    bt.logging.trace("Creating protocol 4 cached index.")
-                    with self.cached_index_lock:
-                        self.cached_index_4 = CompressedMinerIndex(
-                            sources={
-                                source: list(labels_to_buckets.values())
-                                for source, labels_to_buckets in buckets_by_source_by_label.items()
-                            }
-                        )
-                        self.cached_index_updated = dt.datetime.now()
-                        bt.logging.success(
-                            f"Created cached index of {CompressedMinerIndex.size_bytes(self.cached_index_4)} bytes "
-                            + f"across {CompressedMinerIndex.bucket_count(self.cached_index_4)} buckets."
-                        )
+            end = dt.datetime.now()
+            bt.logging.info(
+                f"Compressed index refresh took {(end - start).total_seconds():.2f} seconds."
+            )
+            # Convert the buckets_by_source_by_label into a list of lists of CompressedEntityBucket and return
+            bt.logging.trace("Creating protocol 4 cached index.")
+            with self.cached_index_lock:
+                self.cached_index_4 = CompressedMinerIndex(
+                    sources={
+                        source: list(labels_to_buckets.values())
+                        for source, labels_to_buckets in buckets_by_source_by_label.items()
+                    }
+                )
+                self.cached_index_updated = dt.datetime.now()
+                bt.logging.success(
+                    f"Created cached index of {CompressedMinerIndex.size_bytes(self.cached_index_4)} bytes "
+                    + f"across {CompressedMinerIndex.bucket_count(self.cached_index_4)} buckets."
+                )
 
     def list_contents_in_data_entity_buckets(
         self, data_entity_bucket_ids: List[DataEntityBucketId]
@@ -705,25 +705,20 @@ class MySQLMinerStorage(MinerStorage):
         conn = None
         cursor = None
         try:
-            conn = self._create_connection()
-            cursor = conn.cursor(buffered=True)
             
-            cursor.execute(query, (bucket_id,))
-            
-            # 处理分组结果，将所有分组的值相加
-            results = []
-            for row in cursor:
-                results.append(row)
+            with contextlib.closing(self._create_connection()) as connection:
+                with contextlib.closing(connection.cursor(buffered=True)) as cursor:
+                    cursor.execute(query, (bucket_id,))
                     
-            return results
+                    # 处理分组结果，将所有分组的值相加
+                    results = []
+                    for row in cursor:
+                        results.append(row)
+                            
+                    return results
         except Exception as e:
             print(f"查询桶 {bucket_id} 时出错: {str(e)}")
             return []
-        finally:
-            if cursor and cursor.is_connected():
-                cursor.close()
-            if conn and conn.is_connected():
-                conn.close()
 
     def concurrent_query_all_buckets(self, start_bucket: int = 486000, num_buckets: int = 720, max_workers: int = 20):
         """

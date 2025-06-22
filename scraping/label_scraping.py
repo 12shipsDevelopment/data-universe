@@ -207,7 +207,7 @@ class LabelScraper:
                 data = response.json()
                 
                 # 检查数据是否为空
-                if not data.get("data"):
+                if len(data["data"]) == 0:
                     bt.logging.success(f"end of scrape {tag} in {bucket_id} with {output_queue._current_size} data")
                     return
                 
@@ -215,6 +215,7 @@ class LabelScraper:
                 posts = data["data"]
 
                 data_entities = []
+                current_chunk_size = 0
                 for post in posts:
                     date = dt.datetime.utcfromtimestamp(int(post["created_utc"])).replace(
                             tzinfo=dt.timezone.utc

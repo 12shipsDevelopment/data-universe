@@ -31,8 +31,7 @@ class NullScheduler:
             print("NullScheduler: No new tasks, waiting...")
             return None
 
-        _, raw_task = task_data
-        task = json.loads(raw_task)
+        task = json.loads(task_data)
         return task
 
     '''

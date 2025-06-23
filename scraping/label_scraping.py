@@ -184,12 +184,15 @@ class LabelScraper:
         retry_count = 0
         current_after = int(date_range.start.timestamp()) -1
         before = int(date_range.end.timestamp())
-        
+        is_post = True
         while retry_count < max_retries:
             try:
                 start = dt.datetime.now()
                 # 构建请求URL
-                url = f"https://arctic-shift.photon-reddit.com/api/posts/search?limit=auto&sort=asc&subreddit={tag}&after={current_after}&before={before}"
+                if is_post:
+                    url = f"https://arctic-shift.photon-reddit.com/api/posts/search?limit=auto&sort=asc&subreddit={tag}&after={current_after}&before={before}"
+                else:
+                    url = f"https://arctic-shift.photon-reddit.com/api/comments/search?limit=auto&sort=asc&subreddit={tag}&after={current_after}&before={before}"
                 
                 # 发送GET请求
                 response = requests.get(
@@ -208,8 +211,12 @@ class LabelScraper:
                 
                 # 检查数据是否为空
                 if len(data["data"]) == 0:
-                    bt.logging.success(f"end of scrape {tag} in {bucket_id} with {output_queue._current_size} data")
-                    return
+                    if is_post:
+                        is_post = False
+                        continue
+                    else:
+                        bt.logging.success(f"end of scrape {tag} in {bucket_id} with {output_queue._current_size} data")
+                        return
                 
                 # 处理数据
                 posts = data["data"]

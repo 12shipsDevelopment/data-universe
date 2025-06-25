@@ -22,6 +22,9 @@ from typing import Dict, List
 import bittensor as bt
 from scraping.x.model import XContent
 from concurrent.futures import ThreadPoolExecutor
+from dynamic_desirability.desirability_retrieval import get_lookup
+from rewards.data_value_calculator import DataValueCalculator
+from common.data_v2 import ScorableDataEntityBucket
 
 import time
 
@@ -695,7 +698,7 @@ class MySQLMinerStorage(MinerStorage):
                 total_time = t_end - t_start
                 print(f"Deleted {rows} rows <{oldest_bucket_id} totalcost {total_time:.2f}s")
 
-    def query_single_bucket(self, bucket_id: int) -> list:
+    def query_single_bucket(self, bucket_id: int, dc: DataValueCalculator) -> list:
         """
         查询单个桶的数据总和
         :param bucket_id: 要查询的桶ID
@@ -707,9 +710,7 @@ class MySQLMinerStorage(MinerStorage):
             WHERE timeBucketId = %s 
             GROUP BY label, source
         """
-        
-        conn = None
-        cursor = None
+        cbt = TimeBucket(id = TimeBucket.from_datetime(dt.datetime.now()).id)
         try:
             
             with contextlib.closing(self._create_connection()) as connection:
@@ -719,8 +720,18 @@ class MySQLMinerStorage(MinerStorage):
                     # 处理分组结果，将所有分组的值相加
                     results = []
                     for row in cursor:
-                        results.append(row)
                             
+                        size = int(row[0] if row[0] < 128*1024*1024 else 128*1024*1024)
+                        bucket = ScorableDataEntityBucket(
+                            time_bucket_id=row[1],
+                            source=int(row[2]),
+                            label=row[3] if row[3] != "NULL" else None,
+                            size_bytes=size,
+                            scorable_bytes=size//256,
+                        )
+                        score = dc.get_score_for_data_entity_bucket(bucket,cbt)
+                        
+                        results.append([row,score])
                     return results
         except Exception as e:
             print(f"查询桶 {bucket_id} 时出错: {str(e)}")
@@ -734,6 +745,9 @@ class MySQLMinerStorage(MinerStorage):
         :param max_workers: 最大并发线程数
         :return: 所有桶的contentSizeBytes总和
         """
+        lookup = get_lookup()
+        dc = DataValueCalculator(lookup) if lookup is not None else DataValueCalculator()
+
         bucket_ids = range(start_bucket, start_bucket + num_buckets)
         
         start_time = time.time()
@@ -741,7 +755,7 @@ class MySQLMinerStorage(MinerStorage):
         total_results = []
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             # 使用executor.map并发执行查询
-            results = executor.map(self.query_single_bucket, bucket_ids)
+            results = executor.map(self.query_single_bucket, bucket_ids, dc)
             
             # 汇总所有结果
             for result in results:
@@ -754,11 +768,12 @@ class MySQLMinerStorage(MinerStorage):
 
         
         start_time = time.time()
-        sorted_items = sorted(total_results, key=lambda x: int(x[0]), reverse=True)
+        sorted_items = sorted(total_results, key=lambda x: int(x[1]), reverse=True)
         
         end_time = time.time()
         print(f"排序总耗时: {end_time - start_time:.2f} 秒")
 
         # 返回前top_n个元素
-        return sorted_items[:350000]
+        return sorted_items[0][:350000]
+    
     

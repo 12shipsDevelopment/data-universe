@@ -23,6 +23,7 @@ from dynamic_desirability.constants import (REPO_URL,
                                             )
 
 
+
 def get_json(commit_sha: str, filename: str) -> Optional[Dict[str, Any]]:
     """Retrieve JSON content from a specific commit in the repository."""
     original_dir = os.getcwd()
@@ -313,6 +314,14 @@ async def run_retrieval(config, event) -> DataDesirabilityLookup:
 
 def sync_run_retrieval(config, event):
     return asyncio.run(run_retrieval(config, event))
+
+def get_lookup():
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    json_path = os.path.join(script_dir, DEFAULT_JSON_PATH)
+    if os.path.exists(json_path):
+        return to_lookup(json_path)
+    else:
+        return None
 
 if __name__ == "__main__":
     asyncio.run(run_retrieval(config=None))

@@ -286,8 +286,11 @@ class LabelScheduler:
     def init_tasks(self, labels, days_back=30):
         now = datetime.now()
         start = now - timedelta(days=days_back)
+        left = True
         while start <= now:
             timeBucketId = TimeBucket.from_datetime(start).id - 1
+            if left and start >= TimeBucket.from_datetime(now).id - 240:
+                left = False
             for label in labels:
                 if label.startswith('#'):
                     self.add_task({
@@ -296,7 +299,7 @@ class LabelScheduler:
                         "label": label,
                         "cursor": None,
                         "source": DataSource.X
-                    }, left=False)
+                    }, left=left)
                 elif label.startswith('r/'):
                     self.add_task({
                         "timeBucketId": timeBucketId,
@@ -304,7 +307,7 @@ class LabelScheduler:
                         "label": label,
                         "cursor": None,
                         "source": DataSource.REDDIT
-                    }, left=False)
+                    }, left=left)
             start += timedelta(hours=1)
         print("LabelScheduler: initialize 30days tasks completed")
 

@@ -47,8 +47,8 @@ class MySQLMinerStorage(MinerStorage):
                                 content             BLOB            NOT NULL,
                                 contentSizeBytes    BIGINT          NOT NULL
                                 )"""
-
-    HF_METADATA_TABLE_CREATE = """CREATE TABLE IF NOT EXISTS HFMetaData (
+    HF_METADATA_TABLE_BASE= "HFMetaData"
+    HF_METADATA_TABLE_CREATE = """CREATE TABLE IF NOT EXISTS %s (
                                 uri                 VARCHAR(512)   PRIMARY KEY,
                                 source              INT             NOT NULL,
                                 updatedAt           DATETIME(6)    NOT NULL,
@@ -63,6 +63,7 @@ class MySQLMinerStorage(MinerStorage):
             database='sn13',
             max_database_size_gb_hint=250,
             redis=None,
+            hf_suffix="",
         ):
         self.redis=redis
         self.database = database
@@ -78,6 +79,7 @@ class MySQLMinerStorage(MinerStorage):
             "read_timeout": int(os.environ.get("DB_READ_TIMEOUT", 60)),
             "write_timeout": int(os.environ.get("DB_WRITE_TIMEOUT", 60)),
         }
+        self.hf_suffix= hf_suffix
 
         self.pool = pooling.MySQLConnectionPool(
             pool_name="mypool",
@@ -99,7 +101,7 @@ class MySQLMinerStorage(MinerStorage):
                 cursor.execute(MySQLMinerStorage.DATA_ENTITY_TABLE_CREATE)
 
                 # Create the huggingface table to store HF Info
-                cursor.execute(MySQLMinerStorage.HF_METADATA_TABLE_CREATE)
+                cursor.execute(MySQLMinerStorage.HF_METADATA_TABLE_CREATE, [MySQLMinerStorage.HF_METADATA_TABLE_BASE+self.hf_suffix])
 
         # Update the HFMetaData for miners who created this table in previous versions
         self._ensure_hf_metadata_schema()
@@ -211,6 +213,7 @@ class MySQLMinerStorage(MinerStorage):
             with contextlib.closing(connection.cursor(buffered=True)) as cursor:
                 values = [
                     (
+                        MySQLMinerStorage.HF_METADATA_TABLE_BASE+self.hf_suffix,
                         hf_metadata.repo_name,
                         hf_metadata.source,
                         hf_metadata.updated_at,
@@ -220,7 +223,7 @@ class MySQLMinerStorage(MinerStorage):
                 ]
 
                 cursor.executemany(
-                    "REPLACE INTO HFMetaData (uri, source, updatedAt, encodingKey) VALUES (%s,%s,%s,%s)", values)
+                    "REPLACE INTO %s (uri, source, updatedAt, encodingKey) VALUES (%s,%s,%s,%s)", values)
 
                 connection.commit()
 
@@ -237,7 +240,7 @@ class MySQLMinerStorage(MinerStorage):
             SELECT FROM_UNIXTIME(AVG(UNIX_TIMESTAMP(UpdatedAt))) AS AvgUpdatedAt
             FROM (
                 SELECT UpdatedAt
-                FROM HFMetaData
+                FROM %s
                 WHERE uri LIKE %s
                 ORDER BY UpdatedAt DESC
                 LIMIT 2
@@ -246,7 +249,7 @@ class MySQLMinerStorage(MinerStorage):
         try:
             with contextlib.closing(self._create_connection()) as connection:
                 with contextlib.closing(connection.cursor(buffered=True)) as cursor:
-                    cursor.execute(sql_query, (f"%_{unique_id}",))
+                    cursor.execute(sql_query, (MySQLMinerStorage.HF_METADATA_TABLE_BASE+self.hf_suffix,f"%_{unique_id}",))
                     result = cursor.fetchone()
 
                     if result is None or result[0] is None:
@@ -272,7 +275,7 @@ class MySQLMinerStorage(MinerStorage):
         sql_query = """
             SELECT uri, source, updatedAt, 
                    CASE WHEN encodingKey IS NULL THEN '' ELSE encodingKey END as encodingKey
-            FROM HFMetaData
+            FROM %s
             WHERE uri LIKE %s
             ORDER BY updatedAt DESC
             LIMIT 2;
@@ -280,7 +283,7 @@ class MySQLMinerStorage(MinerStorage):
 
         with contextlib.closing(self._create_connection()) as connection:
             with contextlib.closing(connection.cursor(buffered=True)) as cursor:
-                cursor.execute(sql_query, (f"%_{unique_id}",))
+                cursor.execute(sql_query, (MySQLMinerStorage.HF_METADATA_TABLE_BASE+self.hf_suffix,f"%_{unique_id}",))
                 hf_metadatas = []
 
                 for row in cursor:

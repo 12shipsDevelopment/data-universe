@@ -187,7 +187,8 @@ class Miner:
         self.storage = MySQLMinerStorage(
             host = os.environ.get("DATABASE_HOST","localhost"), 
             database=os.environ.get("DATABASE_NAME","sn13"),
-            redis=self.redis
+            redis=self.redis,
+            hf_suffix = self.wallet.hotkey.ss58_address[-5:] if not self.config.offline else ""
         )
 
         bt.logging.success(

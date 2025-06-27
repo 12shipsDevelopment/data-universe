@@ -28,6 +28,13 @@ from common.data_v2 import ScorableDataEntityBucket
 
 import time
 
+SOURCE_LIST = [1,2,"null"]
+def to_table_name(day_bucket_id: int, source):
+    return f"DataEntity_{day_bucket_id}_{source}"
+
+def to_day_bucket_id(bucket_id:int) -> int:
+    return bucket_id - bucket_id % 24
+
 class UTCDateTimeConverter(mysql.connector.conversion.MySQLConverter):
     def _DATETIME_to_python(self, value, desc=None):
         dt = super()._DATETIME_to_python(value, desc)
@@ -48,12 +55,6 @@ class MySQLMinerStorage(MinerStorage):
                                 contentSizeBytes    BIGINT          NOT NULL
                                 )"""
     HF_METADATA_TABLE_BASE= "HFMetaData"
-    HF_METADATA_TABLE_CREATE = """CREATE TABLE IF NOT EXISTS %s (
-                                uri                 VARCHAR(512)   PRIMARY KEY,
-                                source              INT             NOT NULL,
-                                updatedAt           DATETIME(6)    NOT NULL,
-                                encodingKey         VARCHAR(512)
-                                )"""
 
     def __init__(
             self,
@@ -162,57 +163,41 @@ class MySQLMinerStorage(MinerStorage):
                 + str(self.database_max_content_size_bytes)
             )
 
+        values_set = {}
+
+        for data_entity in data_entities:
+            label = (
+                "NULL" if (data_entity.label is None) else data_entity.label.value
+            )
+            time_bucket_id = TimeBucket.from_datetime(data_entity.datetime).id
+            day_bucket_id = to_day_bucket_id(time_bucket_id)
+            source = "null" if label == "NULL" else data_entity.source
+            table_name = to_table_name(day_bucket_id,source)
+            if not values_set.get(table_name,None):
+                values_set[table_name] = []
+                self.new_table(table_name)
+
+            values_set[table_name].append(
+                [
+                    data_entity.uri,
+                    data_entity.datetime,
+                    time_bucket_id,
+                    data_entity.source,
+                    label,
+                    data_entity.content,
+                    data_entity.content_size_bytes,
+                ]
+            )
+
         with contextlib.closing(self._create_connection()) as connection:
-            # Ensure only one thread is clearing space when necessary.
-            # with self.clearing_space_lock:
-                # If we would exceed our maximum configured stored content size then clear space.
             with contextlib.closing(connection.cursor(buffered=True)) as cursor:
-                # cursor.execute("SELECT SUM(contentSizeBytes) FROM DataEntity")
-
-                # # If there are no rows we convert the None result to 0
-                # result = cursor.fetchone()
-                # current_content_size = result[0] if result[0] else 0
-
-                # if (
-                #     current_content_size + added_content_size
-                #     > self.database_max_content_size_bytes
-                # ):
-                #     content_bytes_to_clear = (
-                #         self.database_max_content_size_bytes // 10
-                #         if self.database_max_content_size_bytes // 10
-                #         > added_content_size
-                #         else added_content_size
-                #     )
-                #     print(f"database_max_content_size_bytes: {self.database_max_content_size_bytes}")
-                #     print(f"added_content_size: {added_content_size}")
-                #     print(f"content_bytes_to_clear: {content_bytes_to_clear}")
-                #     self.clear_content_from_oldest(content_bytes_to_clear)
-
-            # Parse every DataEntity into an list of value lists for inserting.
-                values = []
-
-                for data_entity in data_entities:
-                    label = (
-                        "NULL" if (data_entity.label is None) else data_entity.label.value
-                    )
-                    time_bucket_id = TimeBucket.from_datetime(data_entity.datetime).id
-                    values.append(
-                        [
-                            data_entity.uri,
-                            data_entity.datetime,
-                            time_bucket_id,
-                            data_entity.source,
-                            label,
-                            data_entity.content,
-                            data_entity.content_size_bytes,
-                        ]
-                    )
-
+                # Parse every DataEntity into an list of value lists for inserting.
                 # Insert overwriting duplicate keys (in case of updated content).
-                cursor.executemany("INSERT IGNORE INTO DataEntity VALUES (%s,%s,%s,%s,%s,%s,%s)", values)
+                for table_name,values in values_set.items():
+                    cursor.executemany(f"INSERT IGNORE INTO {table_name} VALUES (%s,%s,%s,%s,%s,%s,%s)", values)
 
-                # Commit the insert.
-                connection.commit()
+                    # Commit the insert.
+                    connection.commit()
 
     def store_hf_dataset_info(self, hf_metadatas: List[HuggingFaceMetadata]):
         with contextlib.closing(self._create_connection()) as connection:
@@ -316,8 +301,11 @@ class MySQLMinerStorage(MinerStorage):
         with contextlib.closing(self._create_connection()) as connection:
             with contextlib.closing(connection.cursor(buffered=True)) as cursor:
                 start = dt.datetime.now()
+                day_bucket_id = to_day_bucket_id(data_entity_bucket_id.time_bucket.id)
+                source = "null" if label == "NULL" else data_entity_bucket_id.source
+                table_name = to_table_name(day_bucket_id,source)
                 cursor.execute(
-                    """SELECT * FROM DataEntity 
+                    f"""SELECT * FROM {table_name} 
                             WHERE timeBucketId = %s AND label = %s AND source = %s""",
                     [
                         data_entity_bucket_id.time_bucket.id,
@@ -697,43 +685,41 @@ class MySQLMinerStorage(MinerStorage):
                 print(f"Deleted {rows} rows <{oldest_bucket_id} totalcost {total_time:.2f}s")
 
     def query_single_bucket(self, bucket_id: int, dc: DataValueCalculator) -> list:
-        """
-        查询单个桶的数据总和
-        :param bucket_id: 要查询的桶ID
-        :return: 该桶的contentSizeBytes总和
-        """
-        query = """
-            SELECT SUM(contentSizeBytes) AS bucketSize, timeBucketId, source, label 
-            FROM dataentity 
-            WHERE timeBucketId = %s 
-            GROUP BY label, source
-        """
         cbt = TimeBucket(id = TimeBucket.from_datetime(dt.datetime.now()).id)
-        try:
-            
-            with contextlib.closing(self._create_connection()) as connection:
-                with contextlib.closing(connection.cursor(buffered=True)) as cursor:
-                    cursor.execute(query, (bucket_id,))
-                    
-                    # 处理分组结果，将所有分组的值相加
+        with contextlib.closing(self._create_connection()) as connection:
+            with contextlib.closing(connection.cursor(buffered=True)) as cursor:
+                try:
                     results = []
-                    for row in cursor:
-                            
-                        size = int(row[0] if row[0] < 128*1024*1024 else 128*1024*1024)
-                        bucket = ScorableDataEntityBucket(
-                            time_bucket_id=row[1],
-                            source=int(row[2]),
-                            label=row[3] if row[3] != "NULL" else None,
-                            size_bytes=size,
-                            scorable_bytes=size//256,
-                        )
-                        score = dc.get_score_for_data_entity_bucket(bucket,cbt)
+                    for s in SOURCE_LIST:
+                        table_name = to_table_name(bucket_id,s)
+                        if not self.table_exists(table_name):
+                            continue
+
+                        cursor.execute(f"""
+                                SELECT SUM(contentSizeBytes) AS bucketSize, timeBucketId, source, label 
+                                FROM {table_name} 
+                                WHERE timeBucketId = %s 
+                                GROUP BY label, source
+                            """, (bucket_id,))
                         
-                        results.append([row,score])
+                        # 处理分组结果，将所有分组的值相加
+                        for row in cursor:
+                                
+                            size = int(row[0] if row[0] < 128*1024*1024 else 128*1024*1024)
+                            bucket = ScorableDataEntityBucket(
+                                time_bucket_id=row[1],
+                                source=int(row[2]),
+                                label=row[3] if row[3] != "NULL" else None,
+                                size_bytes=size,
+                                scorable_bytes=size//256,
+                            )
+                            score = dc.get_score_for_data_entity_bucket(bucket,cbt)
+                            
+                            results.append([row,score])
                     return results
-        except Exception as e:
-            print(f"查询桶 {bucket_id} 时出错: {str(e)}")
-            return []
+                except Exception as e:
+                    print(f"查询桶 {bucket_id} 时出错: {str(e)}")
+                    return []
 
     def concurrent_query_all_buckets(self, start_bucket: int = 486000, num_buckets: int = 720, max_workers: int = 20):
         """
@@ -753,7 +739,7 @@ class MySQLMinerStorage(MinerStorage):
         total_results = []
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             # 使用executor.map并发执行查询
-            results = executor.map(self.query_single_bucket, bucket_ids, dc)
+            results = executor.map(lambda b: self.query_single_bucket(b,dc), bucket_ids)
             
             # 汇总所有结果
             for result in results:
@@ -772,6 +758,44 @@ class MySQLMinerStorage(MinerStorage):
         print(f"排序总耗时: {end_time - start_time:.2f} 秒")
 
         # 返回前top_n个元素
-        return sorted_items[0][:350000]
+        return [item[0] for item in sorted_items[:350000]]
     
+    def table_exists(self, table_name = "DataEntity") -> bool:
+        with contextlib.closing(self._create_connection()) as connection:
+            with contextlib.closing(connection.cursor(buffered=True)) as cursor:
+                query = """
+                    SELECT TABLE_NAME 
+                    FROM INFORMATION_SCHEMA.TABLES 
+                    WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s
+                """
+                cursor.execute(query, (self.database, table_name))
+                result = cursor.fetchone()
+                return result is not None
     
+    def new_table(self, table_name = "DataEntity"):
+        if self.table_exists(table_name):
+            return
+
+        with contextlib.closing(self._create_connection()) as connection:
+            with contextlib.closing(connection.cursor(buffered=True)) as cursor:
+                # 先创建表
+                create_table_query = f"""CREATE TABLE IF NOT EXISTS {table_name} (
+                                                uri                 VARCHAR(512)   PRIMARY KEY,
+                                                datetime            DATETIME(6)    NOT NULL,
+                                                timeBucketId        INT             NOT NULL,
+                                                source              INT             NOT NULL,
+                                                label               CHAR(150)        ,
+                                                content             BLOB            NOT NULL,
+                                                contentSizeBytes    BIGINT          NOT NULL
+                                                )"""
+
+                cursor.execute(create_table_query)
+
+                # 然后添加索引
+                add_index_query = f"""
+                ALTER TABLE {table_name} 
+                ADD INDEX idx_time_label_source_bytes (timeBucketId, label, source, contentSizeBytes);
+                """
+
+                cursor.execute(add_index_query)
+                print(f"table {table_name} created")

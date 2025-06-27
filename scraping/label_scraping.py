@@ -224,6 +224,12 @@ class LabelScraper:
                 data_entities = []
                 current_chunk_size = 0
                 for post in posts:
+                    if post.get("_meta", None):
+                        if post["_meta"].get("removal_type", None):
+                            removal_type = post["_meta"]["removal_type"]
+                            bt.logging.info(f"post {post['name']} is removed {removal_type}, skipping")
+                            continue
+
                     date = dt.datetime.utcfromtimestamp(int(post["created_utc"])).replace(
                             tzinfo=dt.timezone.utc
                         )

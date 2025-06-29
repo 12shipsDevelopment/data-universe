@@ -93,13 +93,12 @@ class MySQLMinerStorage(MinerStorage):
             max_database_size_gb_hint
         )
 
+        self.list_tasks = []
+
         with contextlib.closing(self._create_connection()) as connection:
             with contextlib.closing(connection.cursor(buffered=True)) as cursor:
                 cursor.execute("SELECT @@transaction_isolation")
                 print("isolation level:", cursor.fetchone()[0])
-
-                # Create the DataEntity table (if it does not already exist).
-                cursor.execute(MySQLMinerStorage.DATA_ENTITY_TABLE_CREATE)
 
                 # Create the huggingface table to store HF Info
                 # cursor.execute(MySQLMinerStorage.HF_METADATA_TABLE_CREATE)
@@ -297,13 +296,14 @@ class MySQLMinerStorage(MinerStorage):
             if (data_entity_bucket_id.label is None)
             else data_entity_bucket_id.label.value
         )
-
         with contextlib.closing(self._create_connection()) as connection:
             with contextlib.closing(connection.cursor(buffered=True)) as cursor:
                 start = dt.datetime.now()
                 day_bucket_id = to_day_bucket_id(data_entity_bucket_id.time_bucket.id)
                 source = "null" if label == "NULL" else data_entity_bucket_id.source
                 table_name = to_table_name(day_bucket_id,source)
+
+                self.list_tasks.append(1)
                 cursor.execute(
                     f"""SELECT * FROM {table_name} 
                             WHERE timeBucketId = %s AND label = %s AND source = %s""",
@@ -313,6 +313,7 @@ class MySQLMinerStorage(MinerStorage):
                         data_entity_bucket_id.source,
                     ],
                 )
+                self.list_tasks.pop()
 
                 end = dt.datetime.now()
                 bt.logging.info(
@@ -698,6 +699,10 @@ class MySQLMinerStorage(MinerStorage):
                 try:
                     results = []
                     for s in SOURCE_LIST:
+                        if len(self.list_tasks) != 0:
+                            print("waiting for getting data entity task complete")
+                            while len(self.list_tasks) != 0:
+                                time.sleep(5)
                         day_bucket_id = to_day_bucket_id(bucket_id)
                         table_name = to_table_name(day_bucket_id,s)
                         if not self.table_exists(cursor, table_name):

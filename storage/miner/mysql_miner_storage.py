@@ -692,7 +692,7 @@ class MySQLMinerStorage(MinerStorage):
                     results = []
                     for s in SOURCE_LIST:
                         table_name = to_table_name(bucket_id,s)
-                        if not self.table_exists(table_name):
+                        if not self.table_exists(cursor, table_name):
                             continue
 
                         cursor.execute(f"""
@@ -760,24 +760,22 @@ class MySQLMinerStorage(MinerStorage):
         # 返回前top_n个元素
         return [item[0] for item in sorted_items[:350000]]
     
-    def table_exists(self, table_name = "DataEntity") -> bool:
-        with contextlib.closing(self._create_connection()) as connection:
-            with contextlib.closing(connection.cursor(buffered=True)) as cursor:
-                query = """
-                    SELECT TABLE_NAME 
-                    FROM INFORMATION_SCHEMA.TABLES 
-                    WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s
-                """
-                cursor.execute(query, (self.database, table_name))
-                result = cursor.fetchone()
-                return result is not None
+    def table_exists(self, cursor, table_name = "DataEntity") -> bool:
+        query = """
+            SELECT TABLE_NAME 
+            FROM INFORMATION_SCHEMA.TABLES 
+            WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s
+        """
+        cursor.execute(query, (self.database, table_name))
+        result = cursor.fetchone()
+        return result is not None
     
     def new_table(self, table_name = "DataEntity"):
-        if self.table_exists(table_name):
-            return
 
         with contextlib.closing(self._create_connection()) as connection:
             with contextlib.closing(connection.cursor(buffered=True)) as cursor:
+                if self.table_exists(cursor, table_name):
+                    return
                 # 先创建表
                 create_table_query = f"""CREATE TABLE IF NOT EXISTS {table_name} (
                                                 uri                 VARCHAR(512)   PRIMARY KEY,

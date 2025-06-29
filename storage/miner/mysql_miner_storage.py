@@ -698,7 +698,8 @@ class MySQLMinerStorage(MinerStorage):
                 try:
                     results = []
                     for s in SOURCE_LIST:
-                        table_name = to_table_name(bucket_id,s)
+                        day_bucket_id = to_day_bucket_id(bucket_id)
+                        table_name = to_table_name(day_bucket_id,s)
                         if not self.table_exists(cursor, table_name):
                             continue
 

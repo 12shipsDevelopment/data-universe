@@ -622,11 +622,15 @@ class MySQLMinerStorage(MinerStorage):
                 if (data_entity_bucket_id.label is None)
                 else data_entity_bucket_id.label.value
             )
+            
+            day_bucket_id = to_day_bucket_id(data_entity_bucket_id.time_bucket.id)
+            source = "null" if label == "NULL" else data_entity_bucket_id.source
+            table_name = to_table_name(day_bucket_id,source)
 
             with contextlib.closing(self._create_connection()) as connection:
                 with contextlib.closing(connection.cursor(buffered=True)) as cursor:
                     cursor.execute(
-                        """SELECT SUM(contentSizeBytes) FROM DataEntity 
+                        f"""SELECT SUM(contentSizeBytes) FROM {table_name} 
                                 WHERE timeBucketId = %s AND label = %s AND source = %s""",
                         [
                             data_entity_bucket_id.time_bucket.id,

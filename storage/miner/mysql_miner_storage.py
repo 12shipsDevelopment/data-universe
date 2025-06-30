@@ -306,7 +306,7 @@ class MySQLMinerStorage(MinerStorage):
                 self.list_tasks.append(1)
                 cursor.execute(
                     f"""SELECT * FROM {table_name} 
-                            WHERE timeBucketId = %s AND label = %s AND source = %s""",
+                            WHERE timeBucketId = %s AND binary label = %s AND source = %s""",
                     [
                         data_entity_bucket_id.time_bucket.id,
                         label,
@@ -493,7 +493,7 @@ class MySQLMinerStorage(MinerStorage):
 
         with contextlib.closing(self._create_connection()) as connection:
             with contextlib.closing(connection.cursor(buffered=True)) as cursor:
-                conditions = ["(timeBucketId = %s AND label = %s)"] * len(data_entity_bucket_ids)
+                conditions = ["(timeBucketId = %s AND binary label = %s)"] * len(data_entity_bucket_ids)
                 query = (
                     "SELECT timeBucketId, source, label, content, contentSizeBytes FROM DataEntity "
                     f"WHERE {' OR '.join(conditions)} LIMIT %s"
@@ -588,7 +588,7 @@ class MySQLMinerStorage(MinerStorage):
                 cursor.execute(
                     """SELECT SUM(contentSizeBytes) AS bucketSize, timeBucketId, source, label FROM DataEntity
                             WHERE timeBucketId >= %s
-                            GROUP BY timeBucketId, label, source
+                            GROUP BY timeBucketId, binary label, source
                             ORDER BY bucketSize DESC
                             LIMIT %s
                             """,
@@ -648,7 +648,7 @@ class MySQLMinerStorage(MinerStorage):
                 with contextlib.closing(connection.cursor(buffered=True)) as cursor:
                     cursor.execute(
                         f"""SELECT SUM(contentSizeBytes) FROM {table_name} 
-                                WHERE timeBucketId = %s AND label = %s AND source = %s""",
+                                WHERE timeBucketId = %s AND binary label = %s AND source = %s""",
                         [
                             data_entity_bucket_id.time_bucket.id,
                             label,
@@ -725,7 +725,7 @@ class MySQLMinerStorage(MinerStorage):
                                 SELECT SUM(contentSizeBytes) AS bucketSize, timeBucketId, source, label 
                                 FROM {table_name} 
                                 WHERE timeBucketId = %s 
-                                GROUP BY label, source
+                                GROUP BY binary label, source
                             """, (bucket_id,))
                         
                         # 处理分组结果，将所有分组的值相加
@@ -814,7 +814,7 @@ class MySQLMinerStorage(MinerStorage):
                                                 label               CHAR(150)        ,
                                                 content             BLOB            NOT NULL,
                                                 contentSizeBytes    BIGINT          NOT NULL
-                                                )"""
+                                                ) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin; """
 
                 cursor.execute(create_table_query)
 

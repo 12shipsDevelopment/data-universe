@@ -306,7 +306,7 @@ class MySQLMinerStorage(MinerStorage):
                 table_name = to_table_name(day_bucket_id,source)
                 cursor.execute(
                     f"""SELECT * FROM {table_name} 
-                            WHERE timeBucketId = %s AND label = %s AND source = %s""",
+                            WHERE timeBucketId = %s AND binary label = %s AND source = %s""",
                     [
                         data_entity_bucket_id.time_bucket.id,
                         label,
@@ -476,7 +476,7 @@ class MySQLMinerStorage(MinerStorage):
 
         with contextlib.closing(self._create_connection()) as connection:
             with contextlib.closing(connection.cursor(buffered=True)) as cursor:
-                conditions = ["(timeBucketId = %s AND label = %s)"] * len(data_entity_bucket_ids)
+                conditions = ["(timeBucketId = %s AND binary label = %s)"] * len(data_entity_bucket_ids)
                 query = (
                     "SELECT timeBucketId, source, label, content, contentSizeBytes FROM DataEntity "
                     f"WHERE {' OR '.join(conditions)} LIMIT %s"
@@ -627,7 +627,7 @@ class MySQLMinerStorage(MinerStorage):
                 with contextlib.closing(connection.cursor(buffered=True)) as cursor:
                     cursor.execute(
                         """SELECT SUM(contentSizeBytes) FROM DataEntity 
-                                WHERE timeBucketId = %s AND label = %s AND source = %s""",
+                                WHERE timeBucketId = %s AND binary label = %s AND source = %s""",
                         [
                             data_entity_bucket_id.time_bucket.id,
                             label,

@@ -306,7 +306,7 @@ class MySQLMinerStorage(MinerStorage):
                 self.list_tasks.append(1)
                 cursor.execute(
                     f"""SELECT * FROM {table_name} 
-                            WHERE timeBucketId = %s AND binary label = %s AND source = %s""",
+                            WHERE timeBucketId = %s AND label COLLATE utf8mb4_bin = %s AND source = %s""",
                     [
                         data_entity_bucket_id.time_bucket.id,
                         label,
@@ -493,7 +493,7 @@ class MySQLMinerStorage(MinerStorage):
 
         with contextlib.closing(self._create_connection()) as connection:
             with contextlib.closing(connection.cursor(buffered=True)) as cursor:
-                conditions = ["(timeBucketId = %s AND binary label = %s)"] * len(data_entity_bucket_ids)
+                conditions = ["(timeBucketId = %s AND label COLLATE utf8mb4_bin = %s)"] * len(data_entity_bucket_ids)
                 query = (
                     "SELECT timeBucketId, source, label, content, contentSizeBytes FROM DataEntity "
                     f"WHERE {' OR '.join(conditions)} LIMIT %s"
@@ -586,9 +586,9 @@ class MySQLMinerStorage(MinerStorage):
                 ).id
                 # Get sum of content_size_bytes for all rows grouped by DataEntityBucket.
                 cursor.execute(
-                    """SELECT SUM(contentSizeBytes) AS bucketSize, timeBucketId, source, label FROM DataEntity
+                    """SELECT SUM(contentSizeBytes) AS bucketSize, timeBucketId, source, (label COLLATE utf8mb4_bin) as label_bin FROM DataEntity
                             WHERE timeBucketId >= %s
-                            GROUP BY timeBucketId, binary label, source
+                            GROUP BY timeBucketId, label_bin, source
                             ORDER BY bucketSize DESC
                             LIMIT %s
                             """,
@@ -648,7 +648,7 @@ class MySQLMinerStorage(MinerStorage):
                 with contextlib.closing(connection.cursor(buffered=True)) as cursor:
                     cursor.execute(
                         f"""SELECT SUM(contentSizeBytes) FROM {table_name} 
-                                WHERE timeBucketId = %s AND binary label = %s AND source = %s""",
+                                WHERE timeBucketId = %s AND label COLLATE utf8mb4_bin = %s AND source = %s""",
                         [
                             data_entity_bucket_id.time_bucket.id,
                             label,
@@ -722,10 +722,10 @@ class MySQLMinerStorage(MinerStorage):
                             continue
 
                         cursor.execute(f"""
-                                SELECT SUM(contentSizeBytes) AS bucketSize, timeBucketId, source, label 
+                                SELECT SUM(contentSizeBytes) AS bucketSize, timeBucketId, source, (label COLLATE utf8mb4_bin) as label_bin 
                                 FROM {table_name} 
                                 WHERE timeBucketId = %s 
-                                GROUP BY binary label, source
+                                GROUP BY label_bin, source
                             """, (bucket_id,))
                         
                         # 处理分组结果，将所有分组的值相加

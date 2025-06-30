@@ -93,13 +93,12 @@ class MySQLMinerStorage(MinerStorage):
             max_database_size_gb_hint
         )
 
+        self.list_tasks = []
+
         with contextlib.closing(self._create_connection()) as connection:
             with contextlib.closing(connection.cursor(buffered=True)) as cursor:
                 cursor.execute("SELECT @@transaction_isolation")
                 print("isolation level:", cursor.fetchone()[0])
-
-                # Create the DataEntity table (if it does not already exist).
-                cursor.execute(MySQLMinerStorage.DATA_ENTITY_TABLE_CREATE)
 
                 # Create the huggingface table to store HF Info
                 # cursor.execute(MySQLMinerStorage.HF_METADATA_TABLE_CREATE)
@@ -297,13 +296,14 @@ class MySQLMinerStorage(MinerStorage):
             if (data_entity_bucket_id.label is None)
             else data_entity_bucket_id.label.value
         )
-
         with contextlib.closing(self._create_connection()) as connection:
             with contextlib.closing(connection.cursor(buffered=True)) as cursor:
                 start = dt.datetime.now()
                 day_bucket_id = to_day_bucket_id(data_entity_bucket_id.time_bucket.id)
                 source = "null" if label == "NULL" else data_entity_bucket_id.source
                 table_name = to_table_name(day_bucket_id,source)
+
+                self.list_tasks.append(1)
                 cursor.execute(
                     f"""SELECT * FROM {table_name} 
                             WHERE timeBucketId = %s AND binary label = %s AND source = %s""",
@@ -313,6 +313,7 @@ class MySQLMinerStorage(MinerStorage):
                         data_entity_bucket_id.source,
                     ],
                 )
+                self.list_tasks.pop()
 
                 end = dt.datetime.now()
                 bt.logging.info(
@@ -401,52 +402,55 @@ class MySQLMinerStorage(MinerStorage):
             #         constants.DATA_ENTITY_BUCKET_COUNT_LIMIT_PER_MINER_INDEX_PROTOCOL_4,
             #     ],  # Always get the max for caching and truncate to each necessary size.
             # )
-            results = self.concurrent_query_all_buckets(start_bucket=oldest_time_bucket_id)
+            try: 
+                results = self.concurrent_query_all_buckets(start_bucket=oldest_time_bucket_id)
 
-            buckets_by_source_by_label = defaultdict(dict)
+                buckets_by_source_by_label = defaultdict(dict)
 
-            for row in results:
-                # Ensure the miner does not attempt to report more than the max DataEntityBucket size.
-                size = (
-                    constants.DATA_ENTITY_BUCKET_SIZE_LIMIT_BYTES
-                    if row[0]
-                    >= constants.DATA_ENTITY_BUCKET_SIZE_LIMIT_BYTES
-                    else int(row[0])
+                for row in results:
+                    # Ensure the miner does not attempt to report more than the max DataEntityBucket size.
+                    size = (
+                        constants.DATA_ENTITY_BUCKET_SIZE_LIMIT_BYTES
+                        if row[0]
+                        >= constants.DATA_ENTITY_BUCKET_SIZE_LIMIT_BYTES
+                        else int(row[0])
+                    )
+
+                    label = row[3] if row[3] != "NULL" else None
+
+                    bucket = buckets_by_source_by_label[DataSource(row[2])].get(
+                        label, CompressedEntityBucket(label=label)
+                    )
+                    bucket.sizes_bytes.append(size)
+                    bucket.time_bucket_ids.append(row[1])
+                    buckets_by_source_by_label[DataSource(row[2])][
+                        label
+                    ] = bucket
+
+                end = dt.datetime.now()
+                bt.logging.info(
+                    f"Compressed index refresh took {(end - start).total_seconds():.2f} seconds."
                 )
+                # Convert the buckets_by_source_by_label into a list of lists of CompressedEntityBucket and return
+                bt.logging.trace("Creating protocol 4 cached index.")
+                with self.cached_index_lock:
+                    self.cached_index_4 = CompressedMinerIndex(
+                        sources={
+                            source: list(labels_to_buckets.values())
+                            for source, labels_to_buckets in buckets_by_source_by_label.items()
+                        }
+                    )
+                    if self.redis is not None:
+                        self.redis.set("index", self.cached_index_4.model_dump_json())
+                        bt.logging.success(f"Update index in redis")
 
-                label = row[3] if row[3] != "NULL" else None
-
-                bucket = buckets_by_source_by_label[DataSource(row[2])].get(
-                    label, CompressedEntityBucket(label=label)
-                )
-                bucket.sizes_bytes.append(size)
-                bucket.time_bucket_ids.append(row[1])
-                buckets_by_source_by_label[DataSource(row[2])][
-                    label
-                ] = bucket
-
-            end = dt.datetime.now()
-            bt.logging.info(
-                f"Compressed index refresh took {(end - start).total_seconds():.2f} seconds."
-            )
-            # Convert the buckets_by_source_by_label into a list of lists of CompressedEntityBucket and return
-            bt.logging.trace("Creating protocol 4 cached index.")
-            with self.cached_index_lock:
-                self.cached_index_4 = CompressedMinerIndex(
-                    sources={
-                        source: list(labels_to_buckets.values())
-                        for source, labels_to_buckets in buckets_by_source_by_label.items()
-                    }
-                )
-                if self.redis is not None:
-                    self.redis.set("index", self.cached_index_4.model_dump_json())
-                    bt.logging.success(f"Update index in redis")
-
-                self.cached_index_updated = dt.datetime.now()
-                bt.logging.success(
-                    f"Created cached index of {CompressedMinerIndex.size_bytes(self.cached_index_4)} bytes "
-                    + f"across {CompressedMinerIndex.bucket_count(self.cached_index_4)} buckets."
-                )
+                    self.cached_index_updated = dt.datetime.now()
+                    bt.logging.success(
+                        f"Created cached index of {CompressedMinerIndex.size_bytes(self.cached_index_4)} bytes "
+                        + f"across {CompressedMinerIndex.bucket_count(self.cached_index_4)} buckets."
+                    )
+            except Exception as e:
+                bt.logging.error(f"failed to refresh index: {str(e)}")
 
     def list_contents_in_data_entity_buckets(
         self, data_entity_bucket_ids: List[DataEntityBucketId]
@@ -571,7 +575,7 @@ class MySQLMinerStorage(MinerStorage):
                 cursor.execute(
                     """SELECT SUM(contentSizeBytes) AS bucketSize, timeBucketId, source, label FROM DataEntity
                             WHERE timeBucketId >= %s
-                            GROUP BY timeBucketId, label, source
+                            GROUP BY timeBucketId, binary label, source
                             ORDER BY bucketSize DESC
                             LIMIT %s
                             """,
@@ -622,11 +626,15 @@ class MySQLMinerStorage(MinerStorage):
                 if (data_entity_bucket_id.label is None)
                 else data_entity_bucket_id.label.value
             )
+            
+            day_bucket_id = to_day_bucket_id(data_entity_bucket_id.time_bucket.id)
+            source = "null" if label == "NULL" else data_entity_bucket_id.source
+            table_name = to_table_name(day_bucket_id,source)
 
             with contextlib.closing(self._create_connection()) as connection:
                 with contextlib.closing(connection.cursor(buffered=True)) as cursor:
                     cursor.execute(
-                        """SELECT SUM(contentSizeBytes) FROM DataEntity 
+                        f"""SELECT SUM(contentSizeBytes) FROM {table_name} 
                                 WHERE timeBucketId = %s AND binary label = %s AND source = %s""",
                         [
                             data_entity_bucket_id.time_bucket.id,
@@ -691,15 +699,20 @@ class MySQLMinerStorage(MinerStorage):
                 try:
                     results = []
                     for s in SOURCE_LIST:
-                        table_name = to_table_name(bucket_id,s)
-                        if not self.table_exists(table_name):
+                        if len(self.list_tasks) != 0:
+                            print("waiting for getting data entity task complete")
+                            while len(self.list_tasks) != 0:
+                                time.sleep(5)
+                        day_bucket_id = to_day_bucket_id(bucket_id)
+                        table_name = to_table_name(day_bucket_id,s)
+                        if not self.table_exists(cursor, table_name):
                             continue
 
                         cursor.execute(f"""
                                 SELECT SUM(contentSizeBytes) AS bucketSize, timeBucketId, source, label 
                                 FROM {table_name} 
                                 WHERE timeBucketId = %s 
-                                GROUP BY label, source
+                                GROUP BY binary label, source
                             """, (bucket_id,))
                         
                         # 处理分组结果，将所有分组的值相加
@@ -729,55 +742,56 @@ class MySQLMinerStorage(MinerStorage):
         :param max_workers: 最大并发线程数
         :return: 所有桶的contentSizeBytes总和
         """
-        lookup = get_lookup()
-        dc = DataValueCalculator(lookup) if lookup is not None else DataValueCalculator()
+        try:
+            lookup = get_lookup()
+            dc = DataValueCalculator(lookup) if lookup is not None else DataValueCalculator()
 
-        bucket_ids = range(start_bucket, start_bucket + num_buckets)
-        
-        start_time = time.time()
-        
-        total_results = []
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            # 使用executor.map并发执行查询
-            results = executor.map(lambda b: self.query_single_bucket(b,dc), bucket_ids)
+            bucket_ids = range(start_bucket, start_bucket + num_buckets)
             
-            # 汇总所有结果
-            for result in results:
-                total_results.extend(result)
-        
-        end_time = time.time()
-        
-        print(f"查询完成! 共查询 {num_buckets} 个桶, 共 {len(total_results)} 条记录")
-        print(f"总耗时: {end_time - start_time:.2f} 秒")
+            start_time = time.time()
+            
+            total_results = []
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                # 使用executor.map并发执行查询
+                results = executor.map(lambda b: self.query_single_bucket(b,dc), bucket_ids)
+                
+                # 汇总所有结果
+                for result in results:
+                    total_results.extend(result)
+            
+            end_time = time.time()
+            
+            print(f"查询完成! 共查询 {num_buckets} 个桶, 共 {len(total_results)} 条记录")
+            print(f"总耗时: {end_time - start_time:.2f} 秒")
 
-        
-        start_time = time.time()
-        sorted_items = sorted(total_results, key=lambda x: int(x[1]), reverse=True)
-        
-        end_time = time.time()
-        print(f"排序总耗时: {end_time - start_time:.2f} 秒")
+            
+            start_time = time.time()
+            sorted_items = sorted(total_results, key=lambda x: int(x[1]), reverse=True)
+            
+            end_time = time.time()
+            print(f"排序总耗时: {end_time - start_time:.2f} 秒")
 
-        # 返回前top_n个元素
-        return [item[0] for item in sorted_items[:350000]]
+            # 返回前top_n个元素
+            return [item[0] for item in sorted_items[:350000]]
+        except Exception as e:
+            raise Exception(f"query all buckets failed:{str(e)}")
     
-    def table_exists(self, table_name = "DataEntity") -> bool:
-        with contextlib.closing(self._create_connection()) as connection:
-            with contextlib.closing(connection.cursor(buffered=True)) as cursor:
-                query = """
-                    SELECT TABLE_NAME 
-                    FROM INFORMATION_SCHEMA.TABLES 
-                    WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s
-                """
-                cursor.execute(query, (self.database, table_name))
-                result = cursor.fetchone()
-                return result is not None
+    def table_exists(self, cursor, table_name = "DataEntity") -> bool:
+        query = """
+            SELECT TABLE_NAME 
+            FROM INFORMATION_SCHEMA.TABLES 
+            WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s
+        """
+        cursor.execute(query, (self.database, table_name))
+        result = cursor.fetchone()
+        return result is not None
     
     def new_table(self, table_name = "DataEntity"):
-        if self.table_exists(table_name):
-            return
 
         with contextlib.closing(self._create_connection()) as connection:
             with contextlib.closing(connection.cursor(buffered=True)) as cursor:
+                if self.table_exists(cursor, table_name):
+                    return
                 # 先创建表
                 create_table_query = f"""CREATE TABLE IF NOT EXISTS {table_name} (
                                                 uri                 VARCHAR(512)   PRIMARY KEY,
@@ -787,7 +801,7 @@ class MySQLMinerStorage(MinerStorage):
                                                 label               CHAR(150)        ,
                                                 content             BLOB            NOT NULL,
                                                 contentSizeBytes    BIGINT          NOT NULL
-                                                )"""
+                                                ) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin; """
 
                 cursor.execute(create_table_query)
 

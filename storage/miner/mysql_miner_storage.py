@@ -342,7 +342,6 @@ class MySQLMinerStorage(MinerStorage):
                                 content_size_bytes=int(row[6]),
                                 label=DataLabel(value=row[4]) if row[4] != "NULL" else None
                             )
-                            data_entities.append(data_entity)
                         else:
                             data_entity = DataEntity(
                                 uri=row[0],
@@ -352,6 +351,7 @@ class MySQLMinerStorage(MinerStorage):
                                 content_size_bytes=int(row[6]),
                                 label=DataLabel(value=row[4]) if row[4] != "NULL" else None
                             )
+                        data_entities.append(data_entity)
                         running_size += row[6]
                 end = dt.datetime.now()
                 

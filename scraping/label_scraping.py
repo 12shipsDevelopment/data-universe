@@ -229,6 +229,9 @@ class LabelScraper:
                             removal_type = post["_meta"]["removal_type"]
                             bt.logging.info(f"post {post['name']} is removed {removal_type}, skipping")
                             continue
+                        elif post["_meta"].get("is_edited", False):
+                            bt.logging.info(f"post {post['name']} is edited , skipping")
+                            continue
 
                     date = dt.datetime.utcfromtimestamp(int(post["created_utc"])).replace(
                             tzinfo=dt.timezone.utc

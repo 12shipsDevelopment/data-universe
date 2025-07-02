@@ -11,6 +11,7 @@ from common.date_range import DateRange
 import bittensor as bt
 from scraping.label_scheduler import LabelScheduler
 import threading
+import os
 
 class SizeAwareQueue:
     """Thread-safe queue with size tracking"""
@@ -166,6 +167,7 @@ class LabelScraper:
 
     async def fetch_reddit_for_tag(self, tag: str, date_range: DateRange, output_queue: SizeAwareQueue, max_retries = 3):
         """Fetch Reddit posts for a single tag"""
+        proxy = os.getenv("TWS_PROXY")
         bucket_id = TimeBucket.from_datetime(date_range.start).id
         now = dt.datetime.now()
         age_limit = now - dt.timedelta(days=30)
@@ -195,12 +197,20 @@ class LabelScraper:
                     url = f"https://arctic-shift.photon-reddit.com/api/comments/search?limit=auto&sort=asc&subreddit={tag}&after={current_after}&before={before}"
                 
                 # 发送GET请求
+                proxies = {}
+                if proxy is not None:
+                    proxies = {
+                        'http': proxy,
+                        'https': proxy
+                    }
+                    
                 response = requests.get(
                     url,
                     headers={
                         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
                     },
-                    timeout=30
+                    timeout=30,
+                    proxies=proxies
                 )
                 
                 # 检查响应状态

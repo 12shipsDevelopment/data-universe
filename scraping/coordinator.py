@@ -427,7 +427,8 @@ class ScraperCoordinator:
         
         while self.is_running:
             try:
-                task = scheduler.get_task()
+                reddit_only = os.environ.get("LABEL_REDDIT_ONLY","false") != "false"
+                task = scheduler.get_task(reddit_only)
 
                 now = dt.datetime.now()
                 if not task:

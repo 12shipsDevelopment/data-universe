@@ -648,7 +648,7 @@ class MySQLMinerStorage(MinerStorage):
                 with contextlib.closing(connection.cursor(buffered=True)) as cursor:
                     cursor.execute(
                         f"""SELECT SUM(contentSizeBytes) FROM {table_name} 
-                                WHERE timeBucketId = %s AND label %s AND source = %s""",
+                                WHERE timeBucketId = %s AND label = %s AND source = %s""",
                         [
                             data_entity_bucket_id.time_bucket.id,
                             label,

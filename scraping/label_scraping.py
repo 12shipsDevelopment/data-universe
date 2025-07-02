@@ -286,6 +286,7 @@ class LabelScraper:
                     await asyncio.sleep(5 * retry_count)  # 指数退避
                 else:
                     bt.logging.error(f"exceed max retries for {url}: {str(e)}")
+                    self.scheduler.add_task(self._current_task, left=False)
                     return
             except Exception as e:
                 bt.logging.error(f"Error fetching Reddit posts for tag {tag}: {str(e)}")

@@ -8295,44 +8295,17 @@ class LabelScheduler:
 
         return task_data
         """
-        lua_reddit_only = """
-        local listKey = KEYS[1]
-        local elements = redis.call('LRANGE', listKey, 0, -1)
-
-        local task_data = nil
-        for i = #elements, 1, -1 do
-            local ok, json = pcall(cjson.decode, elements[i])
-            if ok and json and json.label and string.sub(json.label, 1, 2) =="r/" then
-                redis.call('LSET', listKey, i-1, "__DELETED__")
-                redis.call('LREM', listKey, 1, "__DELETED__")
-                task_data = elements[i]
-                break
-            end
-        end
-
-        -- 添加 nil 检查
-        if not task_data then
-            return nil
-        end
-
-        -- 合并解码和后续操作
-        local task = cjson.decode(task_data)
-        if task and task.timeBucketId and task.label then
-            local set_key = task.timeBucketId .. "-" .. task.label
-            redis.call('SREM', KEYS[2], set_key)
-        end
-
-        return task_data
-        """
-        if reddit_only:
-            task_data = self.r.eval(lua_reddit_only, 2, TASK_QUEUE_KEY, TASK_ADDED_KEY)
-        else:
+        while True:
             task_data = self.r.eval(lua, 2, TASK_QUEUE_KEY, TASK_ADDED_KEY)
-        if not task_data:
-            print("LabelScheduler: No new tasks, waiting...")
-            return None
+            if not task_data:
+                print("LabelScheduler: No new tasks, waiting...")
+                return None
 
-        task = json.loads(task_data)
+            task = json.loads(task_data)
+            if reddit_only and task.get("source", 2) == 1:
+                break
+            else:
+                self.add_task(task, left=True)
         return task
 
     '''

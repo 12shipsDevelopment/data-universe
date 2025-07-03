@@ -228,18 +228,6 @@ class LabelScraper:
                 # 解析JSON数据
                 data = response.json()
                 
-                # 检查数据是否为空
-                if len(data["data"]) == 0:
-                    if is_post:
-                        is_post = False
-                        continue
-                    else:
-                        if date_range.end < now.astimezone(dt.timezone.utc) - dt.timedelta(hours = 36):
-                            bucket_key = f"bucket-{bucket_id}-{tag.removeprefix("r/")}-1"
-                            self.redis.set(bucket_key, int(time.time()), ex=30*24*60*60)
-                        bt.logging.success(f"end of scrape {tag} in {bucket_id} with {output_queue._current_size} data")
-                        return
-                
                 # 处理数据
                 posts = data["data"]
 
@@ -279,9 +267,23 @@ class LabelScraper:
                 bt.logging.success(f"use tag {tag} scraped {len(data_entities)} reddits , with {current_chunk_size} bytes label {tag} reddits in {bucket_id}, elapsed {time_diff.total_seconds():.2f}s")
 
                 
-                if not await output_queue.put(data_entities, current_chunk_size):
+                if current_chunk_size != 0 and not await output_queue.put(data_entities, current_chunk_size):
                     bt.logging.success(f"end of scrape {tag} in {bucket_id} with {output_queue._current_size} data")
                     return
+
+                
+                # 检查数据是否为空
+                if len(data["data"]) < 1000:
+                    if is_post:
+                        is_post = False
+                        current_after = int(date_range.start.timestamp()) -1
+                        continue
+                    else:
+                        if date_range.end < now.astimezone(dt.timezone.utc) - dt.timedelta(hours = 36):
+                            bucket_key = f"bucket-{bucket_id}-{tag.removeprefix("r/")}-1"
+                            self.redis.set(bucket_key, int(time.time()), ex=30*24*60*60)
+                        bt.logging.success(f"end of scrape {tag} in {bucket_id} with {output_queue._current_size} data")
+                        return
 
                 last_post = posts[-1]
                 new_after = last_post.get("created_utc")

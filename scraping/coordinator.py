@@ -502,7 +502,7 @@ class ScraperCoordinator:
             except Exception as e:
                 bt.logging.error(f"Error deleting outdate data: {e}")
             now = dt.datetime.now(dt.timezone.utc)
-            next_bucket_start = now.replace(minute=0, second=0, microsecond=0) + dt.timedelta(hours=1)
+            next_bucket_start = now.replace(minute=0, second=0, microsecond=0) + dt.timedelta(days=1)
             wait_seconds = (next_bucket_start - now).total_seconds()
             await asyncio.sleep(wait_seconds)
 

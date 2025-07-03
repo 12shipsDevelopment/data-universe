@@ -673,38 +673,32 @@ class MySQLMinerStorage(MinerStorage):
                 # cursor.executemany("DELETE FROM DataEntity WHERE timeBucketId = %s;",values)
                 # connection.commit()
 
+                oldest_day_bucket_id = to_day_bucket_id(oldest_bucket_id)
+
                 t_start = time.time()
-                rows = 0
-                while True:
-                    t1 = time.time()
 
-                    cursor.execute("""
-                    delete from DataEntity
-                    where timeBucketId < %s
-                    limit 1000;
-                    """, [oldest_bucket_id])
+                cursor.execute("show tables")
+                tables = []
+                for row in cursor:
+                    if row[0].startswith("dataentity_"):
+                        # example table_name =  "dataentity_485740_1"  table_name[11:17] = "485740"
+                        if int(row[0][11:17]) < oldest_day_bucket_id:
+                            tables.append(row[0])
 
-                    t2 = time.time()
-
-                    deleted_rows = cursor.rowcount
-                    rows += deleted_rows 
-                    connection.commit()
-
-                    t3 = time.time()
-
-                    exec_time = t2 - t1
-                    commit_time = t3 - t2
-
-                    print(f"[,{oldest_bucket_id}] Deleted {deleted_rows} rows | SQL: {exec_time:.2f}s | Commit: {commit_time}s.")
-
-                    if deleted_rows == 0:
-                        break
-
+                for table in tables:
+                    start = time.time()
+                    cursor.execute(f"DROP TABLE IF EXISTS {table}")
+                    end = time.time()
+                    print(f"drop table {table} use {end - start:.2f}s")
+                    
                     time.sleep(1) 
+
+
+
 
                 t_end = time.time()
                 total_time = t_end - t_start
-                print(f"Deleted {rows} rows <{oldest_bucket_id} totalcost {total_time:.2f}s")
+                print(f"Drop {len(tables)} tables <{oldest_day_bucket_id} totalcost {total_time:.2f}s")
 
     def query_single_bucket(self, bucket_id: int, dc: DataValueCalculator) -> list:
         cbt = TimeBucket(id = TimeBucket.from_datetime(dt.datetime.now()).id)

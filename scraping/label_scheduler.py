@@ -8307,6 +8307,8 @@ class LabelScheduler:
                     break
                 else:
                     self.add_task(task, left=True)
+            else:
+                break
         return task
 
     '''

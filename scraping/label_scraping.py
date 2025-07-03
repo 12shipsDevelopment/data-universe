@@ -235,7 +235,7 @@ class LabelScraper:
                         continue
                     else:
                         if date_range.end < now.astimezone(dt.timezone.utc) - dt.timedelta(hours = 36):
-                            bucket_key = f"bucket-{bucket_id}-{tag}-1"
+                            bucket_key = f"bucket-{bucket_id}-{tag.removeprefix("r/")}-1"
                             self.redis.set(bucket_key, int(time.time()), ex=30*24*60*60)
                         bt.logging.success(f"end of scrape {tag} in {bucket_id} with {output_queue._current_size} data")
                         return
@@ -288,7 +288,10 @@ class LabelScraper:
                 
                 if not new_after:
                     retry_count += 1
-                    bt.logging.error(f"cannot get last created_utc in {last_post} (retry {retry_count}/{max_retries})")
+                    
+                    end = dt.datetime.now()
+                    time_diff = end -start
+                    bt.logging.error(f"cannot get last created_utc in {last_post} elapsed {time_diff.total_seconds():.2f}s (retry {retry_count}/{max_retries})")
                     if retry_count < max_retries:
                         await asyncio.sleep(5 * retry_count)  # 指数退避
                     else:

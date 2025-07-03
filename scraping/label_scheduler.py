@@ -3,10 +3,6 @@ import simplejson as json
 from datetime import datetime, timedelta
 from common.data import TimeBucket, DataSource
 
-TASK_QUEUE_KEY="x:label:task_queue" # list
-TASK_ADDED_KEY="x:label:task_added"  # set
-TASK_COMPLETED_KEY="x:label:task_completed" # set timeBucketId
-
 DEFAULT_LABELS = [
     "#riyadh",
     "#pr",
@@ -8264,6 +8260,14 @@ DEFAULT_LABELS = [
 "r/agingparents"
 ]
 
+TASK_COMPLETED_KEY="x:label:task_completed" # set timeBucketId
+
+X_QUEUE_KEY="x:label:task_queue" # list
+X_ADDED_KEY="x:label:task_added"  # set
+
+REDDIT_QUEUE_KEY="reddit:label:task_queue" # list
+REDDIT_ADDED_KEY="reddit:label:task_added"  # set
+
 class LabelScheduler:
     @classmethod
     def from_conn(cls, host: str, port: int, password: str):
@@ -8295,20 +8299,16 @@ class LabelScheduler:
 
         return task_data
         """
-        while True:
-            task_data = self.r.eval(lua, 2, TASK_QUEUE_KEY, TASK_ADDED_KEY)
-            if not task_data:
-                print("LabelScheduler: No new tasks, waiting...")
-                return None
+        if reddit_only:
+            task_data = self.r.eval(lua, 2, REDDIT_QUEUE_KEY, REDDIT_ADDED_KEY)
+        else:
+            task_data = self.r.eval(lua, 2, X_QUEUE_KEY, X_ADDED_KEY)
 
-            task = json.loads(task_data)
-            if reddit_only:
-                if task.get("source", 2) == 1:
-                    break
-                else:
-                    self.add_task(task, left=True)
-            else:
-                break
+        if not task_data:
+            print("LabelScheduler: No new tasks, waiting...")
+            return None
+
+        task = json.loads(task_data)
         return task
 
     '''
@@ -8333,13 +8333,23 @@ class LabelScheduler:
             return 0  -- Not added
         """
         key = self.__key(task['label'], task['timeBucketId'])
-        added = self.r.eval(lua, 3,
-                   TASK_ADDED_KEY,
-                   TASK_COMPLETED_KEY,
-                   TASK_QUEUE_KEY,
-                   json.dumps(task),
-                   key,
-                   "1" if left else "0")
+        if task["label"] == DataSource.X:
+            added = self.r.eval(lua, 3,
+                    X_ADDED_KEY,
+                    TASK_COMPLETED_KEY,
+                    X_QUEUE_KEY,
+                    json.dumps(task),
+                    key,
+                    "1" if left else "0")
+        elif task["label"] == DataSource.REDDIT:
+            added = self.r.eval(lua, 3,
+                    REDDIT_ADDED_KEY,
+                    TASK_COMPLETED_KEY,
+                    REDDIT_QUEUE_KEY,
+                    json.dumps(task),
+                    key,
+                    "1" if left else "0")
+
         if added:
             print("LabelScheduler: Added new task: ", task)
 

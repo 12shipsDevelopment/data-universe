@@ -267,9 +267,10 @@ class LabelScraper:
                 bt.logging.success(f"use tag {tag} scraped {len(data_entities)} reddits , with {current_chunk_size} bytes label {tag} reddits in {bucket_id}, elapsed {time_diff.total_seconds():.2f}s")
 
                 
-                if current_chunk_size != 0 and not await output_queue.put(data_entities, current_chunk_size):
-                    bt.logging.success(f"end of scrape {tag} in {bucket_id} with {output_queue._current_size} data")
-                    return
+                if current_chunk_size != 0:
+                    if not await output_queue.put(data_entities, current_chunk_size):
+                        bt.logging.success(f"end of scrape {tag} in {bucket_id} with {output_queue._current_size} data")
+                        return
 
                 
                 # 检查数据是否为空

@@ -8333,7 +8333,7 @@ class LabelScheduler:
             return 0  -- Not added
         """
         key = self.__key(task['label'], task['timeBucketId'])
-        if task["label"] == DataSource.X:
+        if task["source"] == DataSource.X:
             added = self.r.eval(lua, 3,
                     X_ADDED_KEY,
                     TASK_COMPLETED_KEY,
@@ -8341,7 +8341,7 @@ class LabelScheduler:
                     json.dumps(task),
                     key,
                     "1" if left else "0")
-        elif task["label"] == DataSource.REDDIT:
+        elif task["source"] == DataSource.REDDIT:
             added = self.r.eval(lua, 3,
                     REDDIT_ADDED_KEY,
                     TASK_COMPLETED_KEY,

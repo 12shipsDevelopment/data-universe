@@ -643,10 +643,10 @@ class MySQLMinerStorage(MinerStorage):
             day_bucket_id = to_day_bucket_id(data_entity_bucket_id.time_bucket.id)
             source = "null" if label == "NULL" else data_entity_bucket_id.source
             table_name = to_table_name(day_bucket_id,source)
+            self.new_table(table_name)
 
             with contextlib.closing(self._create_connection()) as connection:
                 with contextlib.closing(connection.cursor(buffered=True)) as cursor:
-                    self.new_table(table_name)
                     cursor.execute(
                         f"""SELECT SUM(contentSizeBytes) FROM {table_name} 
                                 WHERE timeBucketId = %s AND label = %s AND source = %s""",
@@ -667,6 +667,7 @@ class MySQLMinerStorage(MinerStorage):
         
         with contextlib.closing(self._create_connection()) as connection:
             with contextlib.closing(connection.cursor(buffered=True)) as cursor:
+                # cursor.execute("SELECT MIN(timeBucketId) FROM Dataentity;")
                 # min_bucket = cursor.fetchall()[0][0]
                 # values = [[i] for i in range(min_bucket, oldest_bucket_id)]
                 # cursor.executemany("DELETE FROM DataEntity WHERE timeBucketId = %s;",values)

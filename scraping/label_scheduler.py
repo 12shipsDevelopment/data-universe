@@ -8302,10 +8302,11 @@ class LabelScheduler:
                 return None
 
             task = json.loads(task_data)
-            if reddit_only and task.get("source", 2) == 1:
-                break
-            else:
-                self.add_task(task, left=True)
+            if reddit_only:
+                if task.get("source", 2) == 1:
+                    break
+                else:
+                    self.add_task(task, left=True)
         return task
 
     '''

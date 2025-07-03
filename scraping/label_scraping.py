@@ -12,6 +12,8 @@ import bittensor as bt
 from scraping.label_scheduler import LabelScheduler
 import threading
 import os
+import redis
+import time
 
 class SizeAwareQueue:
     """Thread-safe queue with size tracking"""
@@ -62,7 +64,14 @@ class LabelScraper:
         self.scheduler = scheduler
         
         self._shutdown_event = shutdown_event
-        
+        self.redis = redis.Redis(
+            host=os.environ.get("REDIS_HOST", "127.0.0.1"), 
+            port=int(os.environ.get("REDIS_PORT", "6379")), 
+            db=1, 
+            password=os.environ.get("REDIS_PASSWORD", "")
+        )
+
+
         asyncio.create_task(self._watch_shutdown())
         print("init label scraper")
 
@@ -225,6 +234,9 @@ class LabelScraper:
                         is_post = False
                         continue
                     else:
+                        if date_range.end < now.astimezone(dt.timezone.utc) - dt.timedelta(hours = 36):
+                            bucket_key = f"bucket-{bucket_id}-{tag}-1"
+                            self.redis.set(bucket_key, int(time.time()), ex=30*24*60*60)
                         bt.logging.success(f"end of scrape {tag} in {bucket_id} with {output_queue._current_size} data")
                         return
                 

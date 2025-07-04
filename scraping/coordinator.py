@@ -359,6 +359,16 @@ class ScraperCoordinator:
                 contentSize = task["contentSizeBytes"]
                 cursor = task["cursor"]
 
+                #parallel scrape in other thread if idle
+                if TimeBucket.from_datetime(now).id == bucketId:
+                    scheduler.add_task({
+                        "timeBucketId": bucketId,
+                        "contentSizeBytes": 0,
+                        "tag": next_tag(tag),
+                        "cursor": None
+                    }, left=True)
+
+
                 if task["timeBucketId"] < TimeBucket.from_datetime(now - dt.timedelta(days=constants.DATA_ENTITY_BUCKET_AGE_LIMIT_DAYS)).id:
                     continue
                 
@@ -407,20 +417,23 @@ class ScraperCoordinator:
                 bt.logging.success(f"Completed scraping null for timebucket {bucketId}. Bucket collected: {new_size/1024/1024:.2f}MB")
 
                 if new_size < bucket_size_limit:
-                    if cursor:
-                        scheduler.add_task({
-                            "timeBucketId": bucketId,
-                            "contentSizeBytes": new_size,
-                            "tag": tag,
-                            "cursor": cursor
-                        }, left=False)
-                    else:
-                        scheduler.add_task({
-                            "timeBucketId": bucketId,
-                            "contentSizeBytes": new_size,
-                            "tag": next_tag(tag),
-                            "cursor": cursor
-                        }, left=False)
+                    now = dt.datetime.now()
+                    
+                    if TimeBucket.from_datetime(now).id != bucketId:
+                        if cursor:
+                            scheduler.add_task({
+                                "timeBucketId": bucketId,
+                                "contentSizeBytes": new_size,
+                                "tag": tag,
+                                "cursor": cursor
+                            }, left=False)
+                        else:
+                            scheduler.add_task({
+                                "timeBucketId": bucketId,
+                                "contentSizeBytes": new_size,
+                                "tag": next_tag(tag),
+                                "cursor": cursor
+                            }, left=False)
                 else:
                     scheduler.complete_task(bucketId)
 

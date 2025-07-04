@@ -88,7 +88,7 @@ class NullScheduler:
 
     def schedule_realtime_tasks(self):
         now = datetime.now()
-        timeBucketId = TimeBucket.from_datetime(now).id - 1
+        timeBucketId = TimeBucket.from_datetime(now).id 
         self.add_task({
             "timeBucketId": timeBucketId,
             "contentSizeBytes": 0,

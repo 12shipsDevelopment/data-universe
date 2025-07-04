@@ -246,7 +246,11 @@ class ScraperCoordinator:
         if os.environ.get("SUPPORT_NULL", "false") != "false":
             scheduler = NullScheduler(self.redis)
             if os.environ.get("NULL_INIT_TASKS", "false") != "false":
-                scheduler.init_tasks()
+                if os.environ.get("NULL_SKIP_OLD", "false") != "false":
+                    scheduler.init_tasks(1)
+                else:
+                    scheduler.init_tasks()
+
                 schedule_task = asyncio.create_task(self.schedule_realtime_task(scheduler))
                 workers.append(schedule_task)
 
@@ -257,7 +261,11 @@ class ScraperCoordinator:
         if os.environ.get("SUPPORT_LABEL", "false") != "false":
             scheduler = LabelScheduler(self.redis)
             if os.environ.get("LABEL_INIT_TASKS", "false") != "false":
-                scheduler.init_tasks(scheduler.labels)
+                if os.environ.get("LABEL_SKIP_OLD", "false") != "false":
+                    scheduler.init_tasks(scheduler.labels,1)
+                else: 
+                    scheduler.init_tasks(scheduler.labels)
+
                 schedule_task = asyncio.create_task(self.schedule_label_realtime_task(scheduler))
                 workers.append(schedule_task)
 
@@ -372,6 +380,13 @@ class ScraperCoordinator:
                 else:
                     target_size = bucket_size_limit - size
                     bt.logging.info(f"null bucket id {bucketId} has {size} bytes data, try scraping {target_size} bytes data")
+                
+                # avoid re-scrape from "a"
+                if tag == "a":
+                    if size > 80 * 1024 * 1024 :
+                        tag = "ab"
+                    elif size > 40 * 1024 * 1024 :
+                        tag = "l"
                 
                 target_bucket = TimeBucket(id=bucketId)
                 date_range = TimeBucket.to_date_range(target_bucket)

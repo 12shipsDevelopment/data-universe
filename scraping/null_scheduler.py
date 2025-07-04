@@ -75,7 +75,7 @@ class NullScheduler:
     def init_tasks(self, days_back=30):
         now = datetime.now()
         start = now - timedelta(days=days_back)
-        while start < now:
+        while start <= now:
             timeBucketId = TimeBucket.from_datetime(start).id - 1
             self.add_task({
                 "timeBucketId": timeBucketId,

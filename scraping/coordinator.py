@@ -509,7 +509,7 @@ class ScraperCoordinator:
         while self.is_running:
             scheduler.schedule_realtime_tasks()
             now = dt.datetime.now()
-            next_bucket_start = now.replace(minute=0, second=0, microsecond=0) + dt.timedelta(hours=1)
+            next_bucket_start = now.replace(minute=2, second=0, microsecond=0) + dt.timedelta(hours=1)
             wait_seconds = (next_bucket_start - now).total_seconds()
             await asyncio.sleep(wait_seconds)
             

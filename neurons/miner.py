@@ -156,22 +156,35 @@ class Miner:
 
         bt.logging.info("Initialized EncodingKeyManager for URL encoding/decoding.")
 
-        if self.use_uploader:
-            self.hf_uploader = DualUploader(
-                db_path=self.config.neuron.database_name,
-                encoding_key_manager=self.encoding_key_manager,
-                private_encoding_key_manager=self.private_encoding_key_manager,
-                wallet=self.wallet,
-                subtensor=self.subtensor,
-                state_file=self.config.miner_upload_state_file,
+        # Instantiate storage.
+        self.storage = MySQLMinerStorage(
+            host = os.environ.get("DATABASE_HOST","localhost"), 
+            database=os.environ.get("DATABASE_NAME","sn13"),
+            redis=self.redis,
+            hf_suffix = self.wallet.hotkey.ss58_address[-5:] if not self.config.offline else ""
+        )
+        bt.logging.success(
+            f"Successfully connected to miner storage: {self.config.neuron.database_name}."
+        )
 
-            )
+
+        if self.use_uploader:
+            # self.hf_uploader = DualUploader(
+            #     db_path=self.config.neuron.database_name,
+            #     encoding_key_manager=self.encoding_key_manager,
+            #     private_encoding_key_manager=self.private_encoding_key_manager,
+            #     wallet=self.wallet,
+            #     subtensor=self.subtensor,
+            #     state_file=self.config.miner_upload_state_file,
+
+            # )
             self.s3_partitioned_uploader = S3PartitionedUploader(
                 db_path=self.config.neuron.database_name,
                 subtensor=self.subtensor,
                 wallet=self.wallet,
                 s3_auth_url=self.config.s3_auth_url,
                 state_file=self.config.miner_upload_state_file,
+                storage=self.storage,
             )
 
         self.redis = redis.Redis(
@@ -182,18 +195,6 @@ class Miner:
         )
         bt.logging.success(
             f"Successfully connected to redis."
-        )
-
-        # Instantiate storage.
-        self.storage = MySQLMinerStorage(
-            host = os.environ.get("DATABASE_HOST","localhost"), 
-            database=os.environ.get("DATABASE_NAME","sn13"),
-            redis=self.redis,
-            hf_suffix = self.wallet.hotkey.ss58_address[-5:] if not self.config.offline else ""
-        )
-
-        bt.logging.success(
-            f"Successfully connected to miner storage: {self.config.neuron.database_name}."
         )
 
         # Configure the ScraperCoordinator

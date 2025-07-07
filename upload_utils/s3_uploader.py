@@ -17,7 +17,9 @@ import re
 from contextlib import contextmanager
 from typing import List, Dict
 from upload_utils.s3_utils import S3Auth
-from common.data import DataSource
+from common.data import DataSource, TimeBucket
+from storage.miner.mysql_miner_storage import MySQLMinerStorage, to_day_bucket_id, to_table_name
+import time
 
 
 def load_dynamic_lookup() -> Dict[str, List[Dict]]:
@@ -52,6 +54,7 @@ class S3PartitionedUploader:
         db_path: str,
         subtensor,
         wallet,
+        storage : MySQLMinerStorage, 
         s3_auth_url: str,
         state_file: str,
         output_dir: str = 's3_partitioned_storage',
@@ -65,18 +68,15 @@ class S3PartitionedUploader:
         self.state_file = f"{state_file.split('.json')[0]}_s3_partitioned.json"
         self.output_dir = os.path.join(output_dir, self.miner_hotkey)
         self.chunk_size = chunk_size
+        self.storage = storage
 
         # Load processed state - tracks last processed info per job
         self.processed_state = self._load_processed_state()
 
     @contextmanager
     def get_db_connection(self):
-        conn = sqlite3.connect(self.db_path, timeout=60.0)
         try:
-            conn.execute("PRAGMA journal_mode=WAL")
-            conn.execute("PRAGMA synchronous=NORMAL")
-            conn.execute("PRAGMA temp_store=MEMORY")
-            conn.execute("PRAGMA cache_size=-2000000")
+            conn = self.storage._create_connection()
             yield conn
         finally:
             conn.close()
@@ -211,6 +211,70 @@ class S3PartitionedUploader:
         except Exception as e:
             bt.logging.error(f"Error querying label data for {source}/{label}: {e}")
             return pd.DataFrame()
+
+    def _get_label_data_sharding(self, source: int, label: str, offset: int = 0) -> tuple[pd.DataFrame, int]:
+        """Get data matching exact label"""
+        # Normalize label for SQL query
+        normalized_label = label.lower().strip()
+        
+        now= dt.datetime.now(tz=dt.timezone.utc)
+        max_bucket_id = TimeBucket.from_datetime(now).id
+        if offset == 0:
+            offset = TimeBucket.from_datetime(now - dt.timedelta(days=30)).id
+            offset = offset - offset % 24   # Convert offset to datetime
+
+        # Build label conditions based on source
+        if source == DataSource.REDDIT.value:
+            # For Reddit: check both with and without r/ prefix
+            label_conditions = [
+                f"label = '{normalized_label}'",
+                f"label = 'r/{normalized_label.removeprefix('r/')}'",
+            ]
+        else:
+            # For X: check hashtags with and without #
+            label_conditions = [
+                f"label = '{normalized_label}'",
+                f"label = '#{normalized_label.removeprefix('#')}'",
+            ]
+
+        label_condition_sql = " OR ".join(label_conditions)
+
+        total_df = pd.DataFrame()
+        while True:
+            day_bucket_id = to_day_bucket_id(offset)
+            table_name = to_table_name(day_bucket_id, source)
+            query = f"""
+                SELECT uri, datetime, label, content
+                FROM {table_name}
+                WHERE timeBucketId = %s AND ({label_condition_sql})
+                ORDER BY datetime ASC
+            """
+            params = [offset]
+
+            total_mm_usage = 0
+
+            try:
+                with self.get_db_connection() as conn:
+                    if len(self.storage.list_tasks) != 0:
+                        bt.logging.debug("waiting for getting data entity task complete")
+                        while len(self.storage.list_tasks) != 0:
+                            time.sleep(5)
+                    df = pd.read_sql_query(query, conn, params=params, parse_dates=['datetime'])
+                    
+                    mm_usage = df.memory_usage().sum()
+                    if total_mm_usage + mm_usage > 90 * 1024 * 1024 :
+                        return total_df, offset
+                if not df.empty:
+                    total_df = pd.concat([total_df,df], ignore_index=True)
+                    bt.logging.debug(f"Found {len(df)} records for label '{label}' in source {source} (bucketId: {offset})")
+                if offset >= max_bucket_id -1:
+                    bt.logging.info(f"Reached max bucket ID {max_bucket_id} for label '{label}', stopping further queries")
+                    return total_df, offset + 1
+                offset += 1
+
+            except Exception as e:
+                bt.logging.error(f"Error querying label data for {source}/{label}: {e}")
+                return total_df, offset
 
     def _get_keyword_data_chunk(self, source: int, keyword: str, offset: int = 0) -> pd.DataFrame:
         """Get chunk of data where keyword appears in text content"""
@@ -403,6 +467,55 @@ class S3PartitionedUploader:
         bt.logging.info(f"Completed job {job_id}: {total_processed} records processed")
         return True
 
+
+    def _process_job_sharding(self, job_id: str, job_config: Dict, s3_creds: Dict) -> bool:
+        """Process a single job using exact job_id as folder name"""
+        source = job_config["source"]
+        search_type = job_config["type"]
+        value = job_config["value"]
+
+        offset = self._get_last_processed_offset(job_id)
+
+        bt.logging.info(f"Processing job {job_id} ({search_type}: {value}), starting from offset: {offset}")
+
+        total_processed = 0
+        now= dt.datetime.now(tz=dt.timezone.utc)
+        max_bucket_id = TimeBucket.from_datetime(now).id
+
+        while True:
+            # Get next chunk based on search type
+            if search_type == "label":
+                chunk_df, new_offset = self._get_label_data_sharding(source, value, offset)
+                offset = new_offset
+            else:  # keyword
+                chunk_df = self._get_keyword_data_chunk(source, value, offset)
+
+            if chunk_df.empty:
+                bt.logging.info(f"No new data for job {job_id}, total processed this run: {total_processed}")
+                break
+
+            # Upload chunk using job_id as folder name
+            success = self._upload_data_chunk(chunk_df, source, job_id, s3_creds)
+            if not success:
+                bt.logging.error(f"Failed to upload chunk for job {job_id}")
+                return False
+
+            total_processed += len(chunk_df)
+              # Shard by 24-hour buckets
+
+            # Update state after each successful chunk
+            self._update_processed_state(job_id, offset, len(chunk_df))
+            self._save_processed_state()
+
+            bt.logging.info(f"Processed {total_processed} new records for job {job_id}")
+
+            # If we got less than chunk_size, we've reached the end for now
+            if offset >= max_bucket_id -1:
+                break
+
+        bt.logging.info(f"Completed job {job_id}: {total_processed} records processed")
+        return True
+
     def upload_dd_data(self) -> bool:
         """Main method to upload data using job_ids from Gravity"""
         bt.logging.info("Starting S3 upload using Gravity job IDs")
@@ -433,7 +546,7 @@ class S3PartitionedUploader:
             for job_id, job_config in jobs.items():
                 bt.logging.info(f"Processing job: {job_id}")
 
-                job_success = self._process_job(job_id, job_config, s3_creds)
+                job_success = self._process_job_sharding(job_id, job_config, s3_creds)
                 if not job_success:
                     overall_success = False
 

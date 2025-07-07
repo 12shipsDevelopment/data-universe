@@ -156,6 +156,16 @@ class Miner:
 
         bt.logging.info("Initialized EncodingKeyManager for URL encoding/decoding.")
 
+        self.redis = redis.Redis(
+            host=os.environ.get("REDIS_HOST", "127.0.0.1"), 
+            port=int(os.environ.get("REDIS_PORT", "6379")), 
+            db=0, 
+            password=os.environ.get("REDIS_PASSWORD", "")
+        )
+        bt.logging.success(
+            f"Successfully connected to redis."
+        )
+
         # Instantiate storage.
         self.storage = MySQLMinerStorage(
             host = os.environ.get("DATABASE_HOST","localhost"), 
@@ -186,16 +196,6 @@ class Miner:
                 state_file=self.config.miner_upload_state_file,
                 storage=self.storage,
             )
-
-        self.redis = redis.Redis(
-            host=os.environ.get("REDIS_HOST", "127.0.0.1"), 
-            port=int(os.environ.get("REDIS_PORT", "6379")), 
-            db=0, 
-            password=os.environ.get("REDIS_PASSWORD", "")
-        )
-        bt.logging.success(
-            f"Successfully connected to redis."
-        )
 
         # Configure the ScraperCoordinator
         bt.logging.info(

@@ -190,6 +190,7 @@ class Tweet(JSONTrait):
     sourceLabel: str | None = None
     card: Union[None, "SummaryCard", "PollCard", "BroadcastCard", "AudiospaceCard"] = None
     possibly_sensitive: bool | None = None
+    quoted_status_id_str: str | None = None
     _type: str = "snscrape.modules.twitter.Tweet"
 
     # todo:
@@ -251,6 +252,7 @@ class Tweet(JSONTrait):
             media=Media.parse(obj),
             card=_parse_card(obj, url),
             possibly_sensitive=obj.get("possibly_sensitive", None),
+            quoted_status_id_str=obj.get("quoted_status_id_str", None)
         )
 
         # issue #42 – restore full rt text

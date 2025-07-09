@@ -5,6 +5,7 @@ import datetime as dt
 from scraping.x.apidojo_scraper import ApiDojoTwitterScraper
 from scraping.x.model import XContent
 from scraping.reddit.model import RedditContent, RedditDataType
+from scraping.reddit.reddit_custom_scraper import extract_media_urls
 from common.data import DataEntity,TimeBucket, DataLabel, DataSource
 from storage.miner.miner_storage import MinerStorage
 from common.date_range import DateRange
@@ -246,6 +247,12 @@ class LabelScraper:
                     date = dt.datetime.utcfromtimestamp(int(post["created_utc"])).replace(
                             tzinfo=dt.timezone.utc
                         )
+                    if is_post:
+                        media = extract_media_urls(post)
+                        is_nsfw = post.get("over_18", False) if "over_18" in post else None
+                    else:
+                        media = None
+                        is_nsfw = False
                     content = RedditContent(
                         id=post["name"],
                         url="https://www.reddit.com"
@@ -256,7 +263,9 @@ class LabelScraper:
                         createdAt=date,
                         dataType=RedditDataType.POST if "selftext" in post else RedditDataType.COMMENT,
                         title=post.get("title", None),
-                        parentId=post.get("parent_id", None)
+                        parentId=post.get("parent_id", None),
+                        media=media,
+                        is_nsfw=is_nsfw
                     )
                     de = RedditContent.to_data_entity(content)
                     current_chunk_size += de.content_size_bytes

@@ -5,6 +5,7 @@ import datetime as dt
 from scraping.x.apidojo_scraper import ApiDojoTwitterScraper
 from scraping.x.model import XContent
 from scraping.reddit.model import RedditContent, RedditDataType
+from scraping.reddit.reddit_custom_scraper import extract_media_urls
 from common.data import DataEntity,TimeBucket, DataLabel, DataSource
 from storage.miner.miner_storage import MinerStorage
 from common.date_range import DateRange
@@ -51,6 +52,11 @@ class SizeAwareQueue:
     async def should_continue(self):
         async with self._lock:
             return not self._size_exceeded
+        
+    async def get_queue_size(self):
+        """Get the current size of the queue"""
+        async with self._lock:
+            return len(self._queue)
 
 class LabelScraper:
     def __init__(
@@ -246,6 +252,12 @@ class LabelScraper:
                     date = dt.datetime.utcfromtimestamp(int(post["created_utc"])).replace(
                             tzinfo=dt.timezone.utc
                         )
+                    if is_post:
+                        media = extract_media_urls(post)
+                        is_nsfw = post.get("over_18", False) if "over_18" in post else None
+                    else:
+                        media = None
+                        is_nsfw = False
                     content = RedditContent(
                         id=post["name"],
                         url="https://www.reddit.com"
@@ -256,7 +268,9 @@ class LabelScraper:
                         createdAt=date,
                         dataType=RedditDataType.POST if "selftext" in post else RedditDataType.COMMENT,
                         title=post.get("title", None),
-                        parentId=post.get("parent_id", None)
+                        parentId=post.get("parent_id", None),
+                        media=media,
+                        is_nsfw=is_nsfw
                     )
                     de = RedditContent.to_data_entity(content)
                     current_chunk_size += de.content_size_bytes
@@ -323,7 +337,7 @@ class LabelScraper:
     async def process_tweets_consumer(self,output_queue: SizeAwareQueue):
         """Consumer coroutine to process fetched tweets"""
         count = 0
-        while not self.stop_event.is_set():
+        while not self.stop_event.is_set() or await output_queue.get_queue_size() > 0:
             chunk = await output_queue.get()
             if chunk is None:
                 await asyncio.sleep(1)
@@ -381,6 +395,7 @@ class LabelScraper:
             new_cursor= await self.fetch_tweets_for_tag(tag, date_range, output_queue, chunk_size_bytes, cursor)
         
         # Notify consumer to finish
+        await asyncio.sleep(2)
         self.stop_event.set()
         await consumer_task
         

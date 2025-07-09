@@ -28,75 +28,72 @@ tables = [
 ]
 
 storage = MySQLMinerStorage()
-connection =storage._create_connection()
-cursor = connection.cursor(buffered=True)
+with storage._create_connection() as connection:
+    for table_name in tables:
+        with connection.cursor(buffered=True) as cursor:
+            print(f"Processing table: {table_name}")
+            start = datetime.now()
+            cursor.execute(f"""
+                    select * from {table_name}
+                    where json_contains_path(cast(unhex(hex(content)) as char), 'one', '$.user_display_name');
+                    """
+                    )
 
-for table_name in tables:
-    print(f"Processing table: {table_name}")
-    start = datetime.now()
-    cursor.execute(f"""
-            select * from {table_name}
-            where json_contains_path(cast(unhex(hex(content)) as char), 'one', '$.user_display_name');
-            """
-            )
+            # Convert the rows into DataEntity objects and return them up to the configured max chuck size.
+            data_entities = []
+            for row in cursor:
+                # If we have already reached the max DataEntityBucket size instead return early.
+                content_str = row[5].decode("utf-8")
+                content = XContent.parse_raw(content_str)
+                # Construct the new DataEntity with all non null columns.
+                if content.user_display_name is not None:
+                    content = XContent(
+                        username=content.username,
+                        text=content.text,
+                        url=content.url,
+                        timestamp=content.timestamp.replace(second=row[1].second),
+                        tweet_hashtags=content.tweet_hashtags,
+                        media=content.media,
+                        user_id=content.user_id,
+                        user_display_name=None,
+                        user_verified=content.user_verified,
+                        tweet_id=content.tweet_id,
+                        is_reply=content.is_reply,
+                        is_quote=content.is_quote,
+                        conversation_id=content.conversation_id,
+                        in_reply_to_user_id=content.in_reply_to_user_id
+                    )
+                    data_entity = XContent.to_data_entity(content=content)
+                    # print(f"{content.url} {row[6]}->{data_entity.content_size_bytes}")
 
-    # Convert the rows into DataEntity objects and return them up to the configured max chuck size.
-    data_entities = []
-    for row in cursor:
-        # If we have already reached the max DataEntityBucket size instead return early.
-        content_str = row[5].decode("utf-8")
-        content = XContent.parse_raw(content_str)
-        # Construct the new DataEntity with all non null columns.
-        if content.user_display_name is not None:
-            content = XContent(
-                username=content.username,
-                text=content.text,
-                url=content.url,
-                timestamp=content.timestamp.replace(second=row[1].second),
-                tweet_hashtags=content.tweet_hashtags,
-                media=content.media,
-                user_id=content.user_id,
-                user_display_name=None,
-                user_verified=content.user_verified,
-                tweet_id=content.tweet_id,
-                is_reply=content.is_reply,
-                is_quote=content.is_quote,
-                conversation_id=content.conversation_id,
-                in_reply_to_user_id=content.in_reply_to_user_id
-            )
-            data_entity = XContent.to_data_entity(content=content)
+                    data_entities.append(data_entity)
+                else:
+                    print(f"No user_display_name found for {row[0]}")
+            end = datetime.now()
+            print(f"Fetched {len(data_entities)} DataEntities in {(end - start).total_seconds():.2f} seconds for {table_name}.")
+            
 
-            data_entities.append(data_entity)
-        else:
-            print(f"No user_display_name found for {row[0]}")
-    end = datetime.now()
-    print(f"Fetched {len(data_entities)} DataEntities in {(end - start).total_seconds():.2f} seconds for {table_name}.")
-    
+            values = []
+            start = datetime.now()
+            for data_entity in data_entities:
+                values.append(
+                    [
+                        data_entity.content,
+                        data_entity.content_size_bytes,
+                        data_entity.uri,
+                    ]
+                )
+            batch_size = 10000
+            total_success = 0
 
-    values = []
-    start = datetime.now()
-    for data_entity in data_entities:
-        values.append(
-            [
-                data_entity.content,
-                data_entity.content_size_bytes,
-                data_entity.uri,
-            ]
-        )
-    batch_size = 10000
-    total_success = 0
+            for i in range(0, len(values), batch_size):
+                batch = values[i:i + batch_size]
+                # cursor.executemany(f"UPDATE {table_name} SET content = %s, contentSizeBytes = %s WHERE uri = %s", batch)
+                # connection.commit()
+                total_success += len(batch)
+                print(f"成功处理 {total_success}/{len(values)} 条记录")
+            
+            end = datetime.now()
+            print(f"Updated {len(values)} DataEntities in {(end - start).total_seconds():.2f} seconds for {table_name}.")
+            break
 
-    for i in range(0, len(values), batch_size):
-        batch = values[i:i + batch_size]
-        # cursor.executemany(f"UPDATE {table_name} SET content = %s, contentSizeBytes = %s WHERE uri = %s", batch)
-        # connection.commit()
-        total_success += len(batch)
-        print(f"成功处理 {total_success}/{len(values)} 条记录")
-    
-    end = datetime.now()
-    print(f"Updated {len(values)} DataEntities in {(end - start).total_seconds():.2f} seconds for {table_name}.")
-    break
-
-connection.commit()
-cursor.close()
-connection.close()

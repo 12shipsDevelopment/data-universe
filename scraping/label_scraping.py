@@ -390,6 +390,7 @@ class LabelScraper:
             new_cursor= await self.fetch_tweets_for_tag(tag, date_range, output_queue, chunk_size_bytes, cursor)
         
         # Notify consumer to finish
+        await asyncio.sleep(2)
         self.stop_event.set()
         await consumer_task
         

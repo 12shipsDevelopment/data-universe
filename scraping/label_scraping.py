@@ -52,6 +52,11 @@ class SizeAwareQueue:
     async def should_continue(self):
         async with self._lock:
             return not self._size_exceeded
+        
+    async def get_queue_size(self):
+        """Get the current size of the queue"""
+        async with self._lock:
+            return len(self._queue)
 
 class LabelScraper:
     def __init__(
@@ -332,7 +337,7 @@ class LabelScraper:
     async def process_tweets_consumer(self,output_queue: SizeAwareQueue):
         """Consumer coroutine to process fetched tweets"""
         count = 0
-        while not self.stop_event.is_set():
+        while not self.stop_event.is_set() or await output_queue.get_queue_size() > 0:
             chunk = await output_queue.get()
             if chunk is None:
                 await asyncio.sleep(1)

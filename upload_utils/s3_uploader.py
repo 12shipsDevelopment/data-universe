@@ -268,7 +268,7 @@ class S3PartitionedUploader:
                 if not df.empty:
                     total_df = pd.concat([total_df,df], ignore_index=True)
                     bt.logging.debug(f"Found {len(df)} records for label '{label}' in source {source} (bucketId: {offset})")
-                if offset >= max_bucket_id -1:
+                if offset >= max_bucket_id -5:
                     bt.logging.info(f"Reached max bucket ID {max_bucket_id} for label '{label}', stopping further queries")
                     return total_df, offset + 1
                 offset += 1
@@ -511,7 +511,7 @@ class S3PartitionedUploader:
             bt.logging.info(f"Processed {total_processed} new records for job {job_id}")
 
             # If we got less than chunk_size, we've reached the end for now
-            if offset >= max_bucket_id -1:
+            if offset >= max_bucket_id -5:
                 break
 
         bt.logging.info(f"Completed job {job_id}: {total_processed} records processed")

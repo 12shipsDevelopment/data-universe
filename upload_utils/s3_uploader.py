@@ -261,9 +261,10 @@ class S3PartitionedUploader:
                             time.sleep(5)
                     df = pd.read_sql_query(query, conn, params=params, parse_dates=['datetime'])
                     
-                    mm_usage = df.memory_usage().sum()
-                    if total_mm_usage + mm_usage > 90 * 1024 * 1024 :
-                        return total_df, offset
+                mm_usage = df.memory_usage().sum()
+                if total_mm_usage + mm_usage > 90 * 1024 * 1024 :
+                    return total_df, offset
+                total_mm_usage += mm_usage
                 if not df.empty:
                     total_df = pd.concat([total_df,df], ignore_index=True)
                     bt.logging.debug(f"Found {len(df)} records for label '{label}' in source {source} (bucketId: {offset})")

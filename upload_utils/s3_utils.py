@@ -33,6 +33,7 @@ class S3Auth:
                 "timestamp": timestamp,
                 "signature": signature_hex
             }
+            bt.logging.info(f"/get-folder-access payload: {payload}")
 
             response = requests.post(
                 f"{self.s3_auth_url.rstrip('/')}/get-folder-access",

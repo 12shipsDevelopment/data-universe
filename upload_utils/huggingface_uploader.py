@@ -323,9 +323,13 @@ class DualUploader:
                     if total_rows >= 200_000_000: # TODO
                         bt.logging.info(f"Reached 200 million rows limit for source {source}. Stopping upload.")
                         break
-
-                    last_upload += 1 
-                    if last_upload >= TimeBucket.from_datetime(dt.datetime.now(dt.timezone.utc)).id -5:
+                    if last_upload is None:
+                        now = dt.datetime.now(dt.timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+                        last_upload = TimeBucket.from_datetime(now - dt.timedelta(days=30)).id
+                        last_upload = last_upload - last_upload % 24 
+                    else:
+                        last_upload += 1 
+                    if last_upload >= TimeBucket.from_datetime(dt.datetime.now(dt.timezone.utc)).id - 5:
                         break
 
                     bt.logging.info(f"Starting preprocessing for DataFrame with {len(df)} rows")

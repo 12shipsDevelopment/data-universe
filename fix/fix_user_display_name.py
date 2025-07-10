@@ -5,8 +5,6 @@ from datetime import datetime,timezone
 from scraping.x.model import XContent
 
 tables = [
-    "dataentity_485952_2",
-    "dataentity_485952_null",
     "dataentity_485976_2",
     "dataentity_485976_null",
     "dataentity_486000_2",
@@ -35,7 +33,7 @@ with storage._create_connection() as connection:
             start = datetime.now()
             cursor.execute(f"""
                     select datetime, content from {table_name}
-                    where json_contains_path(cast(unhex(hex(content)) as char), 'one', '$.user_display_name') limit 10;
+                    where json_contains_path(cast(unhex(hex(content)) as char), 'one', '$.user_display_name');
                     """
                     )
 
@@ -84,18 +82,20 @@ with storage._create_connection() as connection:
                         data_entity.uri,
                     ]
                 )
-            batch_size = 2
+            batch_size = 10
             total_success = 0
 
             for i in range(0, len(values), batch_size):
                 batch = values[i:i + batch_size]
-                print(f"{batch}")
+                print(f"{batch[0][1]} {batch[0][2]}")
                 # cursor.executemany(f"UPDATE {table_name} SET content = %s, contentSizeBytes = %s WHERE uri = %s", batch)
                 # connection.commit()
                 total_success += len(batch)
                 print(f"成功处理 {total_success}/{len(values)} 条记录")
+                break
             
             end = datetime.now()
             print(f"Updated {len(values)} DataEntities in {(end - start).total_seconds():.2f} seconds for {table_name}.")
-            break
+            if table_name == "dataentity_485976_2":
+                break
 

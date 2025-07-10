@@ -88,8 +88,8 @@ with storage._create_connection() as connection:
             for i in range(0, len(values), batch_size):
                 batch = values[i:i + batch_size]
                 print(f"{batch[0][1]} {batch[0][2]}")
-                # cursor.executemany(f"UPDATE {table_name} SET content = %s, contentSizeBytes = %s WHERE uri = %s", batch)
-                # connection.commit()
+                cursor.executemany(f"UPDATE {table_name} SET content = %s, contentSizeBytes = %s WHERE uri = %s", batch)
+                connection.commit()
                 total_success += len(batch)
                 print(f"成功处理 {total_success}/{len(values)} 条记录")
                 break

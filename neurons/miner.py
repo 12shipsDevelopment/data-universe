@@ -797,6 +797,11 @@ class Miner:
             )
 
         uid = self.metagraph.hotkeys.index(hotkey)
+        if os.environ.get("ONLY_89", "false").lower() == "true" and uid != 89:
+            return (
+                True,
+                f"Hotkey {hotkey} at {ip} is not a validator 89",
+            )
         
         if not utils.is_validator(uid, self.metagraph, self.vpermit_rao_limit):
             return (

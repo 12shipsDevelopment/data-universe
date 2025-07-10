@@ -179,15 +179,15 @@ class Miner:
 
 
         if self.use_uploader:
-            # self.hf_uploader = DualUploader(
-            #     db_path=self.config.neuron.database_name,
-            #     encoding_key_manager=self.encoding_key_manager,
-            #     private_encoding_key_manager=self.private_encoding_key_manager,
-            #     wallet=self.wallet,
-            #     subtensor=self.subtensor,
-            #     state_file=self.config.miner_upload_state_file,
-
-            # )
+            self.hf_uploader = DualUploader(
+                db_path=self.config.neuron.database_name,
+                encoding_key_manager=self.encoding_key_manager,
+                private_encoding_key_manager=self.private_encoding_key_manager,
+                wallet=self.wallet,
+                subtensor=self.subtensor,
+                state_file=self.config.miner_upload_state_file,
+                storage = self.storage
+            )
             self.s3_partitioned_uploader = S3PartitionedUploader(
                 db_path=self.config.neuron.database_name,
                 subtensor=self.subtensor,

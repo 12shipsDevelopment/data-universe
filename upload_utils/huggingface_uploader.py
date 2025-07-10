@@ -18,11 +18,11 @@ from upload_utils.utils import(
     get_default_stats_structure
 )
 from upload_utils.encoding_system import EncodingKeyManager
-from common.data import HuggingFaceMetadata, DataSource
+from common.data import HuggingFaceMetadata, DataSource, TimeBucket
 from typing import List, Dict, Union, Any
 from upload_utils.dataset_card import DatasetCardGenerator, NumpyEncoder
 from functools import wraps
-
+from storage.miner.mysql_miner_storage import MySQLMinerStorage, to_day_bucket_id, to_table_name
 
 def retry_upload(max_retries: int = 3, delay: int = 5):
     """Decorator to retry uploads on failure."""
@@ -53,6 +53,7 @@ class DualUploader:
                  encoding_key_manager: EncodingKeyManager,  # USED FOR ENCODING USERNAMES
                  private_encoding_key_manager: EncodingKeyManager,   # USED FOR ENCODING URLS
                  state_file: str,
+                 storage: MySQLMinerStorage,
                  output_dir: str = 'hf_storage',
                  chunk_size: int = 1_000_000):
         self.db_path = db_path
@@ -68,18 +69,12 @@ class DualUploader:
         self.state_file = f"{state_file.split('.json')[0]}_{self.unique_id}.json"
         self.chunk_size = chunk_size
         self.wal_size_limit_mb = 2000  # 2 GB WAL size limit
+        self.storage = storage
 
     @contextmanager
     def get_db_connection(self):
         # conn = sqlite3.connect(self.db_path, timeout=60.0)  # Added timeout
-        connection_config = {
-            'host': 'localhost',
-            'user': 'taos',
-            'password': 'taos@2025',
-            'database': 'sn13',
-            'charset': 'utf8mb4',
-        }
-        conn = mysql.connector.connect(**connection_config)
+        conn = self.storage._create_connection()
         try:
             # # Enhanced optimization settings
             # cursor.execute("PRAGMA journal_mode=WAL")
@@ -181,24 +176,25 @@ class DualUploader:
             return 0
 
     def get_data_for_huggingface_upload(self, source, last_upload):
+        now = dt.datetime.now(dt.timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
         if last_upload is None:
-            query = """
-                SELECT datetime, label, content
-                FROM DataEntity
-                WHERE source = %s
-                ORDER BY datetime ASC
-                LIMIT 200000000
-            """
-            params = [source]
-        else:
-            query = """
-                SELECT datetime, label, content
-                FROM DataEntity
-                WHERE source = %s
-                AND datetime > %s
-                ORDER BY datetime ASC
-            """
-            params = [source, last_upload]
+            last_upload = TimeBucket.from_datetime(now - dt.timedelta(days=30)).id
+            last_upload = last_upload - last_upload % 24 
+        day_bucket_id = to_day_bucket_id(last_upload)
+        table_name = to_table_name(day_bucket_id, source)
+        query = f"""
+            SELECT datetime, label, content
+            FROM {table_name}
+            WHERE timeBucketId = %s
+            ORDER BY datetime ASC
+        """
+        params = [last_upload]
+
+        
+        if len(self.storage.list_tasks) != 0:
+            bt.logging.debug("waiting for getting data entity task complete")
+            while len(self.storage.list_tasks) != 0:
+                time.sleep(5)
 
         with self.get_db_connection() as conn:
             for chunk in pd.read_sql_query(
@@ -209,6 +205,29 @@ class DualUploader:
                     parse_dates=['datetime']
             ):
                 yield chunk
+        
+        if  source == DataSource.X.value:
+            table_name = to_table_name(day_bucket_id, "null")
+            query = f"""
+                SELECT datetime, label, content
+                FROM {table_name}
+                WHERE timeBucketId = %s
+                ORDER BY datetime ASC
+            """
+            
+            if len(self.storage.list_tasks) != 0:
+                bt.logging.debug("waiting for getting data entity task complete")
+                while len(self.storage.list_tasks) != 0:
+                    time.sleep(5)
+            with self.get_db_connection() as conn:
+                for chunk in pd.read_sql_query(
+                        sql=query,
+                        con=conn,
+                        params=params,
+                        chunksize=self.chunk_size,
+                        parse_dates=['datetime']
+                ):
+                    yield chunk
 
     def preprocess_data(self, df, source):
         if source == DataSource.REDDIT.value:
@@ -305,7 +324,9 @@ class DualUploader:
                         bt.logging.info(f"Reached 200 million rows limit for source {source}. Stopping upload.")
                         break
 
-                    last_upload = df['datetime'].max()
+                    last_upload += 1 
+                    if last_upload >= TimeBucket.from_datetime(dt.datetime.now(dt.timezone.utc)).id -5:
+                        break
 
                     bt.logging.info(f"Starting preprocessing for DataFrame with {len(df)} rows")
                     df = self.preprocess_data(df, source)
@@ -333,13 +354,13 @@ class DualUploader:
                         bt.logging.info(f'Uploaded {chunk_count} chunks to {repo_id}')
                         next_chunk_id += chunk_count
                         chunk_count = 0
-                        with self.get_db_connection() as conn:
-                            self.manage_wal(conn)
+                        # with self.get_db_connection() as conn:
+                        #     self.manage_wal(conn)
 
                 if chunk_count > 0:
                     self.upload_parquet_to_hf(repo_id)
-                    with self.get_db_connection() as conn:
-                        self.manage_wal(conn)
+                    # with self.get_db_connection() as conn:
+                    #     self.manage_wal(conn)
                     bt.logging.info(f'Uploaded final {chunk_count} chunks to {repo_id}')
 
                 state['last_upload'][str(source)] = last_upload

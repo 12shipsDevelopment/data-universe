@@ -34,8 +34,8 @@ with storage._create_connection() as connection:
             print(f"Processing table: {table_name}")
             start = datetime.now()
             cursor.execute(f"""
-                    select * from {table_name}
-                    where json_contains_path(cast(unhex(hex(content)) as char), 'one', '$.user_display_name');
+                    select datetime, content from {table_name}
+                    where json_contains_path(cast(unhex(hex(content)) as char), 'one', '$.user_display_name') limit 10;
                     """
                     )
 
@@ -43,15 +43,16 @@ with storage._create_connection() as connection:
             data_entities = []
             for row in cursor:
                 # If we have already reached the max DataEntityBucket size instead return early.
-                content_str = row[5].decode("utf-8")
+                content_str = row[1].decode("utf-8")
                 content = XContent.parse_raw(content_str)
+                dt = row[0]
                 # Construct the new DataEntity with all non null columns.
                 if content.user_display_name is not None:
                     content = XContent(
                         username=content.username,
                         text=content.text,
                         url=content.url,
-                        timestamp=content.timestamp.replace(second=row[1].second),
+                        timestamp=content.timestamp.replace(second=dt.second),
                         tweet_hashtags=content.tweet_hashtags,
                         media=content.media,
                         user_id=content.user_id,
@@ -68,7 +69,7 @@ with storage._create_connection() as connection:
 
                     data_entities.append(data_entity)
                 else:
-                    print(f"No user_display_name found for {row[0]}")
+                    print(f"No user_display_name found for {content.url}")
             end = datetime.now()
             print(f"Fetched {len(data_entities)} DataEntities in {(end - start).total_seconds():.2f} seconds for {table_name}.")
             
@@ -83,11 +84,12 @@ with storage._create_connection() as connection:
                         data_entity.uri,
                     ]
                 )
-            batch_size = 10000
+            batch_size = 2
             total_success = 0
 
             for i in range(0, len(values), batch_size):
                 batch = values[i:i + batch_size]
+                print(f"{batch}")
                 # cursor.executemany(f"UPDATE {table_name} SET content = %s, contentSizeBytes = %s WHERE uri = %s", batch)
                 # connection.commit()
                 total_success += len(batch)

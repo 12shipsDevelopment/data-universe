@@ -15,7 +15,7 @@ REDDIT_ADDED_KEY="reddit:label:task_added"  # set
 
 def read_default_labels():
     try:
-        with open("default_labels.json", "r") as f:
+        with open("scraping/default_labels.json", "r") as f:
             labels = json.load(f)
             if isinstance(labels, list):
                 return labels

@@ -21,7 +21,7 @@ def read_default_labels():
                 return labels
     except FileNotFoundError:
         pass
-    return nsfw_labels
+    return []
 
 class LabelScheduler:
     @classmethod

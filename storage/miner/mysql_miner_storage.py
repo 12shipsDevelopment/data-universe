@@ -271,7 +271,7 @@ class MySQLMinerStorage(MinerStorage):
         """
 
         with contextlib.closing(self._create_connection()) as connection:
-            with contextlib.closing(connection.cursor(buffered=True)) as cursor:
+            with contextlib.closing(connection.cursor(dictionary=True)) as cursor:
                 cursor.execute(sql_query, (f"%_{unique_id}",))
                 hf_metadatas = []
 

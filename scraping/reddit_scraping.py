@@ -2,19 +2,12 @@ import asyncio
 from collections import deque
 import requests
 import datetime as dt
-from scraping.x.apidojo_scraper import ApiDojoTwitterScraper
-from scraping.x.model import XContent
 from scraping.reddit.model import RedditContent, RedditDataType
 from scraping.reddit.reddit_custom_scraper import extract_media_urls
-from common.data import DataEntity,TimeBucket, DataLabel, DataSource
 from storage.miner.miner_storage import MinerStorage
-from common.date_range import DateRange
 import bittensor as bt
 from scraping.reddit_scheduler import RedditScheduler
-import threading
 import os
-import redis
-import time
 
 class SizeAwareQueue:
     """Thread-safe queue with size tracking"""
@@ -67,14 +60,7 @@ class RedditScraper:
 
         self.storage = storage
         self.scheduler = scheduler
-        
-        self.redis = redis.Redis(
-            host=os.environ.get("REDIS_HOST", "127.0.0.1"), 
-            port=int(os.environ.get("REDIS_PORT", "6379")), 
-            db=1, 
-            password=os.environ.get("REDIS_PASSWORD", "")
-        )
-
+    
         print("init label scraper")
 
     async def fetch_reddit_for_tag(self, tag: str, before: int, after: int, sort:str, type: str, is_nsfw: bool, output_queue: SizeAwareQueue, max_retries = 3):
@@ -180,10 +166,12 @@ class RedditScraper:
                 if current_chunk_size != 0:
                     if not await output_queue.put((data_entities,delete_urls), 0):
                         bt.logging.success(f"end of scrape {tag} with {current_chunk_size} data")
-                        return
+                        return None
 
                 
                 # 检查数据是否为空
+                if len(posts) == 0:
+                    return None
 
                 last_post = posts[-1]
                 last_created = last_post.get("created_utc")
@@ -218,7 +206,7 @@ class RedditScraper:
             
             
             # Process tweet chunk (storage/analysis)
-            bt.logging.success(f"Processing chunk with {len(chunk)} DataEntities")
+            bt.logging.success(f"Processing chunk with {len(chunk[0])} DataEntities, and delete {len(chunk[1])} removed/edited data")
             start = dt.datetime.now()
             try:
                 self.storage.insert_or_delete_data_entities(chunk[0],chunk[1])
@@ -252,32 +240,38 @@ class RedditScraper:
 
         if task["post_before"] > old_timestamp:
             timestamp = await self.fetch_reddit_for_tag(task["label"], task["post_before"], old_timestamp, "desc", "posts", task["is_nsfw"] , output_queue)
-            task["post_before"] = timestamp
+            if timestamp is not None:
+                task["post_before"] = timestamp
 
         timestamp = await self.fetch_reddit_for_tag(task["label"], retrieve_timestamp, task["post_after"], "asc", "posts", task["is_nsfw"] , output_queue)
-        task["post_after"] = timestamp
+        if timestamp is not None:
+            task["post_after"] = timestamp
 
         if task["post_latest"] == 0:
             after = retrieve_timestamp
         else:
             after = task["post_latest"]
         timestamp = await self.fetch_reddit_for_tag(task["label"], now_timestamp, after, "asc", "posts", task["is_nsfw"] , output_queue)
-        task["post_latest"] = timestamp
+        if timestamp is not None:
+            task["post_latest"] = timestamp
 
 
         if task["comment_before"] > old_timestamp:
             timestamp = await self.fetch_reddit_for_tag(task["label"], task["comment_before"], old_timestamp, "desc", "comments", task["is_nsfw"] , output_queue)
-            task["comment_before"] = timestamp
+            if timestamp is not None:
+                task["comment_before"] = timestamp
 
         timestamp = await self.fetch_reddit_for_tag(task["label"], retrieve_timestamp, task["comment_after"], "asc", "comments", task["is_nsfw"] , output_queue)
-        task["comment_after"] = timestamp
+        if timestamp is not None:
+            task["comment_after"] = timestamp
 
         if task["comment_latest"] == 0:
             after = retrieve_timestamp
         else:
             after = task["comment_latest"]
         timestamp = await self.fetch_reddit_for_tag(task["label"], now_timestamp, after, "asc", "comments", task["is_nsfw"] , output_queue)
-        task["comment_latest"] = timestamp
+        if timestamp is not None:
+            task["comment_latest"] = timestamp
         
         # Notify consumer to finish
         await asyncio.sleep(2)

@@ -30,7 +30,6 @@ class RedditScheduler:
         self.labels = read_default_labels()
         print(f"load {len(self.labels)} labels from default_labels.json")
         self.total = []
-        self.labels.reverse()
 
     def get_task(self):
         script = """
@@ -58,7 +57,7 @@ class RedditScheduler:
         print(current_index)  # 输出自增前的 queue_index
 
         
-        task_data = self.r.lindex('mylist', current_index)
+        task_data = self.r.lindex(REDDIT_QUEUE_KEY, current_index)
         
         if not task_data:
             print("LabelScheduler: No new tasks, waiting...")
@@ -71,7 +70,9 @@ class RedditScheduler:
     scraper放回来的时候应该left=False
     '''
     def update_task(self, task, index):
-        self.r.lset(REDDIT_QUEUE_KEY, index, task)
+        
+        task_data = json.loads(task)
+        self.r.lset(REDDIT_QUEUE_KEY, index, task_data)
         
     def add_task(self, task):
         added = self.r.sismember(REDDIT_ADDED_KEY, task["label"])
@@ -86,7 +87,22 @@ class RedditScheduler:
         timestamp = int(time.timestamp())
         if not labels:
             for label in nsfw_labels:
-                self.r.rpush({
+                if not self.r.sismember(REDDIT_ADDED_KEY, label):
+                    self.add_task({
+                        "label": label,
+                        "post_before": timestamp,
+                        "post_after": timestamp,
+                        "post_latest": 0,
+                        "comment_before": timestamp,
+                        "comment_after": timestamp,
+                        "comment_latest": 0,
+                        "is_nsfw": True
+                    })
+            labels= self.labels
+        
+        for label in labels:
+            if not self.r.sismember(REDDIT_ADDED_KEY, label):
+                self.add_task({
                     "label": label,
                     "post_before": timestamp,
                     "post_after": timestamp,
@@ -94,19 +110,6 @@ class RedditScheduler:
                     "comment_before": timestamp,
                     "comment_after": timestamp,
                     "comment_latest": 0,
-                    "is_nsfw": True
+                    "is_nsfw": False
                 })
-            labels= self.labels
-        
-        for label in labels:
-            self.r.rpush({
-                "label": label,
-                "post_before": timestamp,
-                "post_after": timestamp,
-                "post_latest": 0,
-                "comment_before": timestamp,
-                "comment_after": timestamp,
-                "comment_latest": 0,
-                "is_nsfw": False
-            })
                 

@@ -536,7 +536,7 @@ class ScraperCoordinator:
 
                 label = task["label"]
                 
-                bt.logging.success(f"Processing label {label} data")
+                bt.logging.info(f"Processing label {label} data")
                 
                 # Run the parallel processing
                 await label_scraper.process_tags_parallel(task,index)
@@ -547,7 +547,7 @@ class ScraperCoordinator:
                 await asyncio.sleep(wait_seconds)
                 
             except Exception as e:
-                bt.logging.error("Twitter scraping error: " + traceback.format_exc())
+                bt.logging.error("Reddit scraping error: " + traceback.format_exc())
                 await asyncio.sleep(300)  # Wait 5 minutes before retrying after error
 
     async def schedule_realtime_task(self, scheduler: NullScheduler):

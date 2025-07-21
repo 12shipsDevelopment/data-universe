@@ -19,8 +19,10 @@ from storage.miner.miner_storage import MinerStorage
 from twscrape import AccountsPool, API
 from scraping.null_scraping import NullScraper
 from scraping.null_scheduler import NullScheduler
-from scraping.label_scheduler import LabelScheduler
-from scraping.label_scraping import LabelScraper
+from scraping.twitter_scheduler import TwitterScheduler
+from scraping.twitter_scraping import TwitterScraper
+from scraping.reddit_scheduler import RedditScheduler
+from scraping.reddit_scraping import RedditScraper
 import redis
 
 class LabelScrapingConfig(StrictBaseModel):
@@ -259,27 +261,38 @@ class ScraperCoordinator:
                 workers.append(null_task)
 
         if os.environ.get("SUPPORT_LABEL", "false") != "false":
-            scheduler = LabelScheduler(self.redis)
+            twitter_scheduler = TwitterScheduler(self.redis)
+            reddit_scheduler = RedditScheduler(self.redis)
+            
             if os.environ.get("LABEL_INIT_TASKS", "false") != "false":
                 if os.environ.get("LABEL_SKIP_OLD", "false") != "false":
-                    scheduler.init_tasks(scheduler.labels,1)
+                    twitter_scheduler.init_tasks(twitter_scheduler.labels,1)
                 else: 
-                    scheduler.init_tasks(scheduler.labels)
+                    twitter_scheduler.init_tasks(twitter_scheduler.labels)
 
-                schedule_task = asyncio.create_task(self.schedule_label_realtime_task(scheduler))
+                reddit_scheduler.init_tasks()
+
+                schedule_task = asyncio.create_task(self.schedule_label_realtime_task(twitter_scheduler))
                 workers.append(schedule_task)
+            
+                if os.environ.get("LABEL_DESIRABILITY", "false") != "false":
+                    desirability_task = asyncio.create_task(self.desirability_task(self.desirablility_event, twitter_scheduler, reddit_scheduler))
+                    workers.append(desirability_task)
+                
+                if os.environ.get("LABEL_TRENDING", "false") != "false":
+                    trends_task = asyncio.create_task(self.trends_task(twitter_scheduler))
+                    workers.append(trends_task)
 
-            for i in range(int(os.environ.get("LABEL_PARALLEL", "5"))):
-                label_task = asyncio.create_task(self.label_scraping_task(scheduler,self.shutdown_event))
-                workers.append(label_task)
-            
-            if os.environ.get("LABEL_DESIRABILITY", "false") != "false":
-                desirability_task = asyncio.create_task(self.desirability_task(self.desirablility_event, scheduler))
-                workers.append(desirability_task)
-            
-            if os.environ.get("LABEL_TRENDING", "false") != "false":
-                trends_task = asyncio.create_task(self.trends_task(scheduler))
-                workers.append(trends_task)
+            if os.environ.get("LABEL_REDDIT_ONLY","false") == "false":
+                for i in range(int(os.environ.get("LABEL_PARALLEL", "5"))):
+                    label_task = asyncio.create_task(self.twitter_scraping_task(twitter_scheduler,self.shutdown_event))
+                    workers.append(label_task)
+                
+            else:
+                for i in range(int(os.environ.get("LABEL_PARALLEL", "5"))):
+                    label_task = asyncio.create_task(self.reddit_scraping_task(reddit_scheduler))
+                    workers.append(label_task)
+
 
         while self.is_running:
             await asyncio.sleep(5)
@@ -446,17 +459,16 @@ class ScraperCoordinator:
                 await asyncio.sleep(300)  # Wait 5 minutes before retrying after error
 
     
-    async def label_scraping_task(self, scheduler: LabelScheduler, shutdown_event: threading.Event):
+    async def twitter_scraping_task(self, scheduler: TwitterScheduler, shutdown_event: threading.Event):
         """Runs periodic label bucket scraping tasks using timebuckets."""
         bt.logging.info("Starting label scraping tasks...")
         await asyncio.sleep(5)
 
-        label_scraper = LabelScraper(scheduler=scheduler, storage= self.storage, shutdown_event= shutdown_event)
+        label_scraper = TwitterScraper(scheduler=scheduler, storage= self.storage, shutdown_event= shutdown_event)
         
         while self.is_running:
             try:
-                reddit_only = os.environ.get("LABEL_REDDIT_ONLY","false") != "false"
-                task = scheduler.get_task(reddit_only)
+                task = scheduler.get_task()
 
                 now = dt.datetime.now()
                 if not task:
@@ -505,6 +517,39 @@ class ScraperCoordinator:
                 bt.logging.error("Twitter scraping error: " + traceback.format_exc())
                 await asyncio.sleep(300)  # Wait 5 minutes before retrying after error
 
+    async def reddit_scraping_task(self, scheduler: RedditScheduler):
+        """Runs periodic label bucket scraping tasks using timebuckets."""
+        bt.logging.info("Starting label scraping tasks...")
+        await asyncio.sleep(5)
+
+        label_scraper = RedditScraper(scheduler=scheduler, storage= self.storage)
+        
+        while self.is_running:
+            try:
+                task, index = scheduler.get_task()
+
+                now = dt.datetime.now()
+                if not task:
+                    wait_seconds = dt.timedelta(minutes=2).total_seconds()
+                    await asyncio.sleep(wait_seconds)
+                    continue
+
+                label = task["label"]
+                
+                bt.logging.success(f"Processing label {label} data")
+                
+                # Run the parallel processing
+                await label_scraper.process_tags_parallel(task,index)
+                
+                bt.logging.success(f"Completed scraping label {label}.")
+
+                wait_seconds = 1
+                await asyncio.sleep(wait_seconds)
+                
+            except Exception as e:
+                bt.logging.error("Twitter scraping error: " + traceback.format_exc())
+                await asyncio.sleep(300)  # Wait 5 minutes before retrying after error
+
     async def schedule_realtime_task(self, scheduler: NullScheduler):
         while self.is_running:
             scheduler.schedule_realtime_tasks()
@@ -513,7 +558,7 @@ class ScraperCoordinator:
             wait_seconds = (next_bucket_start - now).total_seconds()
             await asyncio.sleep(wait_seconds)
             
-    async def schedule_label_realtime_task(self, scheduler: LabelScheduler):
+    async def schedule_label_realtime_task(self, scheduler: TwitterScheduler):
         while self.is_running:
             scheduler.schedule_realtime_tasks()
             now = dt.datetime.now()
@@ -534,8 +579,7 @@ class ScraperCoordinator:
             wait_seconds = (next_bucket_start - now).total_seconds()
             await asyncio.sleep(wait_seconds)
 
-    async def desirability_task(self, desirability_event: threading.Event, scheduler: LabelScheduler):
-        old_label_list = []
+    async def desirability_task(self, desirability_event: threading.Event, ts: TwitterScheduler, rs: RedditScheduler):
         while self.is_running:
 
             while not desirability_event.is_set():
@@ -554,30 +598,41 @@ class ScraperCoordinator:
                 with open(target_path, 'r') as f:
                     default_jobs = json.load(f)
 
-                label_list = []
+                twitter_label_list = []
+                reddit_label_list = []
                 for job in default_jobs:
                     if "params" in job:
                         params = job["params"]
                         if "label" in params and "platform" in params:
-                            if params["label"] in scheduler.trends or params["label"] in scheduler.labels:
+                            if params["label"] in ts.trends or params["label"] in ts.labels:
                                 continue
-                            if params["platform"] == "x" or params["platform"] == "reddit":
+                            if params["platform"] == "x" :
                                 bt.logging.info(f"Found label: {params['label']}")
-                                label_list.append(params["label"])
-                if old_label_list == label_list:
-                    bt.logging.info("No new labels found, skipping desirability task.")
-                    continue
-                scheduler.total=label_list
-                scheduler.init_tasks(label_list)
-                
-                old_label_list = label_list.copy()
+                                twitter_label_list.append(params["label"])
+                            elif params["platform"] == "reddit":
+                                bt.logging.info(f"Found label: {params['label']}")
+                                reddit_label_list.append(params["label"])
+
+                if ts.total == twitter_label_list:
+                    bt.logging.info("No new twitter labels found, skipping desirability task.")
+                else:
+                    ts.init_tasks(twitter_label_list)
+                    ts.total=twitter_label_list
+
+                if rs.total == reddit_label_list:
+                    bt.logging.info("No new reddit labels found, skipping desirability task.")
+                else:
+                    rs.init_tasks(reddit_label_list)
+                    rs.total=reddit_label_list
+
+
                 bt.logging.info("Desirability task completed. Waiting for next trigger.")
             except Exception as e:
                 bt.logging.error("Desirability task error: " + traceback.format_exc())
 
 
      # Add hourly task
-    async def trends_task(self, scheduler: LabelScheduler):
+    async def trends_task(self, scheduler: TwitterScheduler):
         """Runs hourly tasks, such as scraping trends."""
         bt.logging.info("Starting trends tasks...")
         api = API(AccountsPool())

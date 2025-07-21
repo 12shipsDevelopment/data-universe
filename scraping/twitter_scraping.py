@@ -10,7 +10,7 @@ from common.data import DataEntity,TimeBucket, DataLabel, DataSource
 from storage.miner.miner_storage import MinerStorage
 from common.date_range import DateRange
 import bittensor as bt
-from scraping.label_scheduler import LabelScheduler
+from scraping.twitter_scheduler import TwitterScheduler
 import threading
 import os
 import redis
@@ -58,11 +58,11 @@ class SizeAwareQueue:
         async with self._lock:
             return len(self._queue)
 
-class LabelScraper:
+class TwitterScraper:
     def __init__(
         self,
         storage: MinerStorage,
-        scheduler: LabelScheduler,
+        scheduler: TwitterScheduler,
         shutdown_event: threading.Event
     ):
 

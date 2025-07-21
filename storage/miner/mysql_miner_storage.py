@@ -821,3 +821,27 @@ class MySQLMinerStorage(MinerStorage):
 
                 cursor.execute(add_index_query)
                 print(f"table {table_name} created")
+
+    
+    def insert_or_delete_data_entities(self, data_entities: List[DataEntity], delete_uris: List[tuple[str,dt.datetime]]):
+        self.store_data_entities(data_entities)
+        
+        uri_set = {}
+        for item in delete_uris:
+            time_bucket_id = TimeBucket.from_datetime(item[1]).id
+            day_bucket_id = to_day_bucket_id(time_bucket_id)
+            source = 1
+            table_name = to_table_name(day_bucket_id,source)
+            if not uri_set.get(table_name,None):
+                uri_set[table_name] = []
+
+            uri_set[table_name].append([item[0]])
+        with contextlib.closing(self._create_connection()) as connection:
+            with contextlib.closing(connection.cursor(buffered=True)) as cursor:
+                for table_name,values in uri_set.items():
+                    
+                    if not self.table_exists(cursor, table_name):
+                        continue
+                    cursor.executemany(f"delete from {table_name} where uri = %s", values)
+                    # Commit the insert.
+                    connection.commit()

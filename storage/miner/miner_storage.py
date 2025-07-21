@@ -55,3 +55,7 @@ class MinerStorage(ABC):
     @abstractmethod
     def delete_outdate_data(self,oldest_bucket_id: int):
         raise NotImplemented
+
+    @abstractmethod
+    def insert_or_delete_data_entities(self, data_entities: List[DataEntity], delete_uris: List[tuple[str,dt.datetime]]):
+        raise NotImplemented

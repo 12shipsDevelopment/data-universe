@@ -71,7 +71,7 @@ class RedditScheduler:
     '''
     def update_task(self, task, index):
         
-        task_data = json.loads(task)
+        task_data = json.dumps(task)
         self.r.lset(REDDIT_QUEUE_KEY, index, task_data)
         
     def add_task(self, task):

@@ -512,8 +512,9 @@ class Miner:
             bt.logging.error(f"Unsupported protocol version: {synapse.version}.")
             return synapse
 
-        if self.redis.exists('index'):
-            synapse.compressed_index_serialized = self.redis.get('index')
+        index_key = os.environ.get("INDEX_KEY","index1")
+        if self.redis.exists(index_key):
+            synapse.compressed_index_serialized = self.redis.get(index_key)
         else:
             # Return the appropriate amount of max buckets based on protocol of the requesting validator.
             compressed_index = self.storage.get_compressed_index(

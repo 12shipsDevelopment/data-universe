@@ -416,52 +416,56 @@ class MySQLMinerStorage(MinerStorage):
             #     ],  # Always get the max for caching and truncate to each necessary size.
             # )
             try: 
-                results = self.concurrent_query_all_buckets(start_bucket=oldest_time_bucket_id)
+                results_list = self.concurrent_query_all_buckets(start_bucket=oldest_time_bucket_id)
+                
+                index_count = 1
+                for results in results_list:
+                    buckets_by_source_by_label = defaultdict(dict)
 
-                buckets_by_source_by_label = defaultdict(dict)
+                    for row in results:
+                        # Ensure the miner does not attempt to report more than the max DataEntityBucket size.
+                        size = (
+                            constants.DATA_ENTITY_BUCKET_SIZE_LIMIT_BYTES
+                            if row[0]
+                            >= constants.DATA_ENTITY_BUCKET_SIZE_LIMIT_BYTES
+                            else int(row[0])
+                        )
 
-                for row in results:
-                    # Ensure the miner does not attempt to report more than the max DataEntityBucket size.
-                    size = (
-                        constants.DATA_ENTITY_BUCKET_SIZE_LIMIT_BYTES
-                        if row[0]
-                        >= constants.DATA_ENTITY_BUCKET_SIZE_LIMIT_BYTES
-                        else int(row[0])
+                        label = row[3] if row[3] != "NULL" else None
+
+                        bucket = buckets_by_source_by_label[DataSource(row[2])].get(
+                            label, CompressedEntityBucket(label=label)
+                        )
+                        bucket.sizes_bytes.append(size)
+                        bucket.time_bucket_ids.append(row[1])
+                        buckets_by_source_by_label[DataSource(row[2])][
+                            label
+                        ] = bucket
+
+                    end = dt.datetime.now()
+                    bt.logging.info(
+                        f"Compressed index refresh took {(end - start).total_seconds():.2f} seconds."
                     )
+                    # Convert the buckets_by_source_by_label into a list of lists of CompressedEntityBucket and return
+                    bt.logging.trace("Creating protocol 4 cached index.")
+                    with self.cached_index_lock:
+                        self.cached_index_4 = CompressedMinerIndex(
+                            sources={
+                                source: list(labels_to_buckets.values())
+                                for source, labels_to_buckets in buckets_by_source_by_label.items()
+                            }
+                        )
+                        if self.redis is not None:
+                            self.redis.set(f"index{index_count}", self.cached_index_4.model_dump_json())
+                            index_count += 1
+                            bt.logging.success(f"Update index in redis")
 
-                    label = row[3] if row[3] != "NULL" else None
-
-                    bucket = buckets_by_source_by_label[DataSource(row[2])].get(
-                        label, CompressedEntityBucket(label=label)
-                    )
-                    bucket.sizes_bytes.append(size)
-                    bucket.time_bucket_ids.append(row[1])
-                    buckets_by_source_by_label[DataSource(row[2])][
-                        label
-                    ] = bucket
-
-                end = dt.datetime.now()
-                bt.logging.info(
-                    f"Compressed index refresh took {(end - start).total_seconds():.2f} seconds."
-                )
-                # Convert the buckets_by_source_by_label into a list of lists of CompressedEntityBucket and return
-                bt.logging.trace("Creating protocol 4 cached index.")
-                with self.cached_index_lock:
-                    self.cached_index_4 = CompressedMinerIndex(
-                        sources={
-                            source: list(labels_to_buckets.values())
-                            for source, labels_to_buckets in buckets_by_source_by_label.items()
-                        }
-                    )
-                    if self.redis is not None:
-                        self.redis.set("index", self.cached_index_4.model_dump_json())
-                        bt.logging.success(f"Update index in redis")
-
-                    self.cached_index_updated = dt.datetime.now()
-                    bt.logging.success(
-                        f"Created cached index of {CompressedMinerIndex.size_bytes(self.cached_index_4)} bytes "
-                        + f"across {CompressedMinerIndex.bucket_count(self.cached_index_4)} buckets."
-                    )
+                        self.cached_index_updated = dt.datetime.now()
+                        bt.logging.success(
+                            f"Created cached index{index_count} of {CompressedMinerIndex.size_bytes(self.cached_index_4)} bytes "
+                            + f"across {CompressedMinerIndex.bucket_count(self.cached_index_4)} buckets."
+                        )
+                    
             except Exception as e:
                 bt.logging.error(f"failed to refresh index: {str(e)}")
 
@@ -700,13 +704,13 @@ class MySQLMinerStorage(MinerStorage):
                 total_time = t_end - t_start
                 print(f"Drop {len(tables)} tables <{oldest_day_bucket_id} totalcost {total_time:.2f}s")
 
-    def query_single_bucket(self, bucket_id: int, dc: DataValueCalculator) -> list:
+    def query_single_bucket(self, bucket_id: int, dc: DataValueCalculator, source_list: list) -> list:
         cbt = TimeBucket(id = TimeBucket.from_datetime(dt.datetime.now()).id)
         with contextlib.closing(self._create_connection()) as connection:
             with contextlib.closing(connection.cursor(buffered=True)) as cursor:
                 try:
                     results = []
-                    for s in SOURCE_LIST:
+                    for s in source_list:
                         if len(self.list_tasks) != 0:
                             print("waiting for getting data entity task complete")
                             while len(self.list_tasks) != 0:
@@ -755,13 +759,25 @@ class MySQLMinerStorage(MinerStorage):
             dc = DataValueCalculator(lookup) if lookup is not None else DataValueCalculator()
 
             bucket_ids = range(start_bucket, start_bucket + num_buckets)
+            null_bucket_ids = range(start_bucket, start_bucket + num_buckets + 1)
             
             start_time = time.time()
+            
+            null_results = []
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                # 使用executor.map并发执行查询
+                results = executor.map(lambda b: self.query_single_bucket(b,dc,["null"]), null_bucket_ids)
+                
+                # 汇总所有结果
+                for result in results:
+                    null_results.extend(result)
+
+            print(f"get {len(null_results)} null buckets")
             
             total_results = []
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 # 使用executor.map并发执行查询
-                results = executor.map(lambda b: self.query_single_bucket(b,dc), bucket_ids)
+                results = executor.map(lambda b: self.query_single_bucket(b,dc,[1,2]), bucket_ids)
                 
                 # 汇总所有结果
                 for result in results:
@@ -779,8 +795,13 @@ class MySQLMinerStorage(MinerStorage):
             end_time = time.time()
             print(f"排序总耗时: {end_time - start_time:.2f} 秒")
 
+            len_labels = 350000 - len(null_results)
             # 返回前top_n个元素
-            return [item[0] for item in sorted_items[:350000]]
+            return [
+                [item[0] for item in sorted_items[:len_labels] + null_results],
+                [item[0] for item in sorted_items[len_labels:len_labels*2] + null_results],
+                [item[0] for item in sorted_items[len_labels*2:len_labels*3] + null_results],
+                ]
         except Exception as e:
             raise Exception(f"query all buckets failed:{str(e)}")
     

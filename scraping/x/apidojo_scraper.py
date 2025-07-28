@@ -6,7 +6,6 @@ import bittensor as bt
 from twscrape import API, AccountsPool, gather
 from twscrape.models import Tweet
 from typing import List, Tuple, Optional
-from common import constants
 from common.data import DataEntity, DataLabel, DataSource
 from common.date_range import DateRange
 from scraping.scraper import ScrapeConfig, Scraper, ValidationResult, HFValidationResult

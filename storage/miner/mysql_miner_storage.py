@@ -422,7 +422,10 @@ class MySQLMinerStorage(MinerStorage):
                 for results in results_list:
                     buckets_by_source_by_label = defaultdict(dict)
 
+                    invalid_labels = self.redis.smembers("reddit:label:invalid_label")
                     for row in results:
+                        if row[3] in invalid_labels:
+                            continue
                         # Ensure the miner does not attempt to report more than the max DataEntityBucket size.
                         size = (
                             constants.DATA_ENTITY_BUCKET_SIZE_LIMIT_BYTES

@@ -12,7 +12,7 @@ from typing import Dict, List, Optional
 import numpy
 from pydantic import Field, PositiveInt, ConfigDict
 from common.date_range import DateRange
-from common.data import DataLabel, DataSource, StrictBaseModel, TimeBucket, DataEntityBucketId,constants
+from common.data import DataLabel, DataSource, StrictBaseModel, TimeBucket, DataEntityBucketId,constants, CompressedMinerIndex
 from scraping.provider import ScraperProvider
 from scraping.scraper import ScrapeConfig, ScraperId
 from storage.miner.miner_storage import MinerStorage
@@ -283,6 +283,10 @@ class ScraperCoordinator:
                     trends_task = asyncio.create_task(self.trends_task(twitter_scheduler))
                     workers.append(trends_task)
 
+                if os.environ.get("LABEL_RETRIEVE", "false") != "false":
+                    retrieve_task = asyncio.create_task(self.retrieve_task(twitter_scheduler, reddit_scheduler))
+                    workers.append(retrieve_task)
+
             if os.environ.get("LABEL_REDDIT_ONLY","false") == "false":
                 for i in range(int(os.environ.get("LABEL_PARALLEL", "5"))):
                     label_task = asyncio.create_task(self.twitter_scraping_task(twitter_scheduler,self.shutdown_event))
@@ -502,7 +506,8 @@ class ScraperCoordinator:
                     date_range=date_range,
                     chunk_size_bytes=512 * 1024,
                     cursor=cursor,
-                    source=source
+                    source=source,
+                    is_retrieve=task.get("retrieve", False)
                 )
                 
                 new_size = self.storage.get_total_size_of_data_entities_in_bucket(check_bucket_id)
@@ -669,6 +674,38 @@ class ScraperCoordinator:
             except Exception as e:
                 bt.logging.error("Trends : " + traceback.format_exc())
 
+    async def retrieve_task(self, ts: TwitterScheduler, rs: RedditScheduler):
+        """Runs hourly tasks, such as scraping trends."""
+        bt.logging.info("Starting retrieve tasks...")
+        await asyncio.sleep(5)
+        while self.is_running:
+            try:
+                bt.logging.info("Running retrieve tasks...")
+                index_count = 1
+                while True:
+                    if not self.redis.exists(f"index{index_count}"):
+                        break
+                    raw_index = self.redis.get(f"index{index_count}")
+                    miner_index: CompressedMinerIndex = CompressedMinerIndex.model_validate_json(raw_index)
+                    for buckets in  miner_index.sources[1]:
+                        if buckets is not None and buckets.label is not None:
+                            for bucket_id in buckets.time_bucket_ids:
+                                ts.add_retrive_task({
+                                        "timeBucketId": bucket_id,
+                                        "contentSizeBytes": 0,
+                                        "label": buckets.label,
+                                        "cursor": None,
+                                        "source": DataSource.X,
+                                        "retrieve": True
+                                    })
+                    # Get the trends labels
+                    rs.check_labels()
+                    index_count+=1
+
+                wait_seconds = dt.timedelta(days=1).total_seconds()
+                await asyncio.sleep(wait_seconds)
+            except Exception as e:
+                bt.logging.error("retrieve : " + traceback.format_exc())
 
 def next_tag(tag: str):
     chars = list(tag)

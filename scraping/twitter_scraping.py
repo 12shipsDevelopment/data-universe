@@ -6,7 +6,7 @@ from scraping.x.apidojo_scraper import ApiDojoTwitterScraper
 from scraping.x.model import XContent
 from scraping.reddit.model import RedditContent, RedditDataType
 from scraping.reddit.reddit_custom_scraper import extract_media_urls
-from common.data import DataEntity,TimeBucket, DataLabel, DataSource
+from common.data import DataEntity,TimeBucket, DataSource, DataEntityBucketId
 from storage.miner.miner_storage import MinerStorage
 from common.date_range import DateRange
 import bittensor as bt
@@ -26,7 +26,7 @@ class SizeAwareQueue:
         self._size_exceeded = False
         self._count = 0
 
-    async def put(self, chunk, chunk_size):
+    async def put(self, chunk, chunk_size, is_retrieve):
         async with self._lock:
             if self._size_exceeded:
                 return False
@@ -35,7 +35,7 @@ class SizeAwareQueue:
                 self._size_exceeded = True
                 return False
                 
-            self._queue.append(chunk)
+            self._queue.append((chunk, is_retrieve))
             self._current_size += chunk_size
             self._count +=1 
             if self._count == 16:
@@ -46,7 +46,7 @@ class SizeAwareQueue:
     async def get(self):
         async with self._lock:
             if not self._queue:
-                return None
+                return None, None
             return self._queue.popleft()
 
     async def should_continue(self):
@@ -149,7 +149,7 @@ class TwitterScraper:
                             end = dt.datetime.now()
                             time_diff = end -start
                             bt.logging.success(f"Scraped {len(current_chunk)} tweets in chunk {tag}-{chunk_num} , with {current_chunk_size} bytes label {tag} tweets in {bucket_id}, skip {skip_total} old age tweets, elapsed {time_diff.total_seconds():.2f}s")
-                            if not await output_queue.put(current_chunk, current_chunk_size):
+                            if not await output_queue.put(current_chunk, current_chunk_size,False):
                                 bt.logging.success(f"end of scrape {tag} in {bucket_id}")
                                 return cursor
                             current_chunk = []
@@ -163,7 +163,7 @@ class TwitterScraper:
                     time_diff = end -start
                     if len(current_chunk) > 0:
                         bt.logging.success(f"use tag {tag} scraped {len(current_chunk)} tweets in  chunk {tag}-{chunk_num} (last), with {current_chunk_size} bytes label {tag} tweets in {bucket_id}, elapsed {time_diff.total_seconds():.2f}s")
-                        await output_queue.put(current_chunk, current_chunk_size)
+                        await output_queue.put(current_chunk, current_chunk_size, False)
                     bt.logging.success(f"end of scrape {tag} in {bucket_id}")
                     return None
                 else: 
@@ -177,8 +177,108 @@ class TwitterScraper:
                     time_diff = end -start
                     bt.logging.success(f"use tag {tag} scraped {len(current_chunk)} in  chunk {tag}-{chunk_num} (last), with {current_chunk_size} bytes label {tag} tweets in {bucket_id}, elapsed {time_diff.total_seconds():.2f}s")
                     bt.logging.success(f"end of scrape {tag} in {bucket_id}")
-                    await output_queue.put(current_chunk, current_chunk_size)
+                    await output_queue.put(current_chunk, current_chunk_size,False)
                 return cursor
+            
+    async def retrieve_tweets_for_tag(
+        self,
+        tag: str,
+        date_range: DateRange,
+        output_queue: SizeAwareQueue,
+        chunk_size_bytes: int,
+        cursor: str|None = None,
+    ) :
+        """Fetch tweets for a single tag in chunks"""
+        scraper = ApiDojoTwitterScraper()
+        bucket_id = TimeBucket.from_datetime(date_range.start).id
+        query = self.generate_current_hour_query(tag, date_range)
+        last_cursor = cursor
+        current_chunk = []
+        current_chunk_size = 0
+        chunk_num = 1
+        skip_total = 0
+        
+        check_bucket_id = DataEntityBucketId(
+            time_bucket=TimeBucket(id = bucket_id),
+            source=DataSource.X,
+            label=tag,
+        )
+
+        stored_data_entities = self.storage.list_data_entities_in_data_entity_bucket(check_bucket_id)
+        uri_to_delete = set()
+        for de in stored_data_entities:
+            uri_to_delete.add(de.uri)
+
+        # Time range filters
+        # age_limit = dt.datetime.utcnow().replace(tzinfo=dt.timezone.utc) - dt.timedelta(days=30)
+        current_hour_start = date_range.start
+        start = dt.datetime.now()
+        while await output_queue.should_continue():
+            try:
+                async for new_tweets, new_cursor in scraper.api.search_with_cursor(query, 1000, cursor=cursor):
+                    if not await output_queue.should_continue():  # Check before processing each batch
+                        bt.logging.info(f"Size limit reached during processing, stopping fetch for tag {tag} in {bucket_id}")
+                        return None
+                    cursor = new_cursor
+                    x_contents, is_retweets, skip_count = scraper._best_effort_parse_tweets(new_tweets)
+                    skip_total += skip_count
+                    
+                    data_entities :list[DataEntity] = []
+                    for x_content in x_contents:
+                        data_entity = XContent.to_data_entity(content=x_content)
+                        if data_entity.label != tag or data_entity.datetime < date_range.start or data_entity.datetime >= date_range.end:
+                            continue
+
+                        uri_to_delete.discard(data_entity.uri)
+                        if data_entity.content_size_bytes < 65520:
+                            data_entities.append(data_entity)
+
+                    for data in data_entities:
+                        # Only count size for tweets in current hour with NULL first_tag
+                        if data.datetime >= current_hour_start:
+                            current_chunk_size += data.content_size_bytes
+                        
+                        current_chunk.append(data)
+                        
+                        # Submit chunk when size threshold reached
+                        if current_chunk_size >= chunk_size_bytes:
+                            end = dt.datetime.now()
+                            time_diff = end -start
+                            bt.logging.success(f"Scraped {len(current_chunk)} tweets in chunk {tag}-{chunk_num} , with {current_chunk_size} bytes label {tag} tweets in {bucket_id}, skip {skip_total} old age tweets, elapsed {time_diff.total_seconds():.2f}s")
+                            if not await output_queue.put(current_chunk, current_chunk_size,True):
+                                bt.logging.success(f"end of scrape {tag} in {bucket_id}")
+                                return None
+                            current_chunk = []
+                            current_chunk_size = 0
+                            chunk_num += 1
+                            start = end
+                            skip_total = 0
+
+                if cursor == last_cursor:
+                    end = dt.datetime.now()
+                    time_diff = end -start
+                    if len(current_chunk) > 0:
+                        bt.logging.success(f"use tag {tag} scraped {len(current_chunk)} tweets in  chunk {tag}-{chunk_num} (last), with {current_chunk_size} bytes label {tag} tweets in {bucket_id}, elapsed {time_diff.total_seconds():.2f}s")
+                        await output_queue.put(current_chunk, current_chunk_size, True)
+                    delete_list = []
+                    for uri in uri_to_delete:
+                        delete_list.append((uri,date_range.start))
+                    self.storage.insert_or_delete_data_entities([],delete_list)
+                    bt.logging.success(f"end of scrape {tag} in {bucket_id}")
+                    return None
+                else: 
+                    last_cursor = cursor
+                self._current_task["cursor"]= cursor
+
+            except Exception as e:
+                bt.logging.error(f"Error processing tag {tag} in {bucket_id}: {str(e)}")
+                if current_chunk:  # Submit collected data on error
+                    end = dt.datetime.now()
+                    time_diff = end -start
+                    bt.logging.success(f"use tag {tag} scraped {len(current_chunk)} in  chunk {tag}-{chunk_num} (last), with {current_chunk_size} bytes label {tag} tweets in {bucket_id}, elapsed {time_diff.total_seconds():.2f}s")
+                    bt.logging.success(f"end of scrape {tag} in {bucket_id}")
+                    await output_queue.put(current_chunk, current_chunk_size,True)
+                return None
 
     async def fetch_reddit_for_tag(self, tag: str, date_range: DateRange, output_queue: SizeAwareQueue, max_retries = 3):
         """Fetch Reddit posts for a single tag"""
@@ -338,7 +438,7 @@ class TwitterScraper:
         """Consumer coroutine to process fetched tweets"""
         count = 0
         while not self.stop_event.is_set() or await output_queue.get_queue_size() > 0:
-            chunk = await output_queue.get()
+            chunk, is_retrieve = await output_queue.get()
             if chunk is None:
                 await asyncio.sleep(1)
                 count +=1
@@ -353,7 +453,10 @@ class TwitterScraper:
             bt.logging.success(f"Processing chunk with {len(chunk)} DataEntities")
             start = dt.datetime.now()
             try:
-                self.storage.store_data_entities(chunk)
+                if is_retrieve:
+                    self.storage.update_data_entities(chunk)
+                else:
+                    self.storage.store_data_entities(chunk)
                 end = dt.datetime.now()
                 time_diff = end -start
                 bt.logging.success(f"store {len(chunk)} DataEntities elapsed {time_diff.total_seconds():.2f}s ")
@@ -367,6 +470,7 @@ class TwitterScraper:
         tag: str,
         bucket_id: int,
         date_range :DateRange,
+        is_retrieve: bool,
         chunk_size_bytes: int = 1 *1024 *1024,
         cursor: str|None = None,
         source: int|None = None,
@@ -380,7 +484,8 @@ class TwitterScraper:
             "contentSizeBytes": 0,
             "label": tag,
             "cursor": cursor,
-            "source": source if source is not None else DataSource.X
+            "source": source if source is not None else DataSource.X,
+            "is_retrieve": is_retrieve
         }
 
         new_cursor = None
@@ -391,8 +496,11 @@ class TwitterScraper:
         if source == DataSource.REDDIT:
             await self.fetch_reddit_for_tag(tag, date_range, output_queue)
         else:
-            # Wait for producers to complete
-            new_cursor= await self.fetch_tweets_for_tag(tag, date_range, output_queue, chunk_size_bytes, cursor)
+            if is_retrieve:
+                await self.retrieve_tweets_for_tag(tag, date_range, output_queue, chunk_size_bytes, cursor)
+            else:
+                # Wait for producers to complete
+                new_cursor= await self.fetch_tweets_for_tag(tag, date_range, output_queue, chunk_size_bytes, cursor)
         
         # Notify consumer to finish
         await asyncio.sleep(2)

@@ -866,3 +866,52 @@ class MySQLMinerStorage(MinerStorage):
                     cursor.executemany(f"delete from {table_name} where uri = %s", values)
                     # Commit the insert.
                     connection.commit()
+    
+    def update_data_entities(self, data_entities: List[DataEntity]):
+        """Stores any number of DataEntities, making space if necessary."""
+
+        added_content_size = 0
+        for data_entity in data_entities:
+            added_content_size += data_entity.content_size_bytes
+
+        # If the total size of the store is larger than our maximum configured stored content size then ecept.
+        if added_content_size > self.database_max_content_size_bytes:
+            raise ValueError(
+                "Content size to store: "
+                + str(added_content_size)
+                + " exceeds configured max: "
+                + str(self.database_max_content_size_bytes)
+            )
+
+        values_set = {}
+
+        for data_entity in data_entities:
+            label = (
+                "NULL" if (data_entity.label is None) else data_entity.label.value
+            )
+            time_bucket_id = TimeBucket.from_datetime(data_entity.datetime).id
+            day_bucket_id = to_day_bucket_id(time_bucket_id)
+            source = "null" if label == "NULL" else data_entity.source
+            table_name = to_table_name(day_bucket_id,source)
+            if not values_set.get(table_name,None):
+                values_set[table_name] = []
+                self.new_table(table_name)
+
+            values_set[table_name].append(
+                [
+                    data_entity.content,
+                    data_entity.content_size_bytes,
+                    data_entity.uri,
+                ]
+            )
+
+        with contextlib.closing(self._create_connection()) as connection:
+            with contextlib.closing(connection.cursor(buffered=True)) as cursor:
+                # Parse every DataEntity into an list of value lists for inserting.
+                # Insert overwriting duplicate keys (in case of updated content).
+                for table_name,values in values_set.items():
+                    cursor.executemany(f"UPDATE {table_name} SET content = %s, contentSizeBytes = %s WHERE uri = %s", values)
+
+                    # Commit the insert.
+                    connection.commit()
+                

@@ -93,6 +93,10 @@ class TwitterScheduler:
         if added:
             print("LabelScheduler: Added new task: ", task)
 
+    def add_retrive_task(self, task):
+        task_data = json.dumps(task)
+        self.r.lpush(X_QUEUE_KEY,task_data)
+
     def complete_task(self, label, timeBucketId):
         self.r.sadd(TASK_COMPLETED_KEY, self.__key(label, timeBucketId))
 

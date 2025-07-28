@@ -59,3 +59,7 @@ class MinerStorage(ABC):
     @abstractmethod
     def insert_or_delete_data_entities(self, data_entities: List[DataEntity], delete_uris: List[tuple[str,dt.datetime]]):
         raise NotImplemented
+    
+    @abstractmethod
+    def update_data_entities(self, data_entities: List[DataEntity]):
+        raise NotImplemented

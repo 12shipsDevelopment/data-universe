@@ -138,6 +138,8 @@ class RedditScraper:
                         )
                     if type == "posts":
                         media = extract_media_urls(post)
+                        if media is not None and is_nsfw:
+                            continue
                     else:
                         media = None
                     content = RedditContent(

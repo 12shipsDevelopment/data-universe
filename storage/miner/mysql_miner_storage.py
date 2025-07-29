@@ -797,13 +797,14 @@ class MySQLMinerStorage(MinerStorage):
             
             end_time = time.time()
             print(f"排序总耗时: {end_time - start_time:.2f} 秒")
-
-            len_labels = 350000 - len(null_results)
+            common_num = int(os.environ.get("COMMEN_BUCKET_NUM", "200000"))
+            len_labels = 350000 - common_num - len(null_results)
             # 返回前top_n个元素
             return [
-                [item[0] for item in sorted_items[:len_labels] + null_results],
-                [item[0] for item in sorted_items[len_labels:len_labels*2] + null_results],
-                [item[0] for item in sorted_items[len_labels*2:len_labels*3] + null_results],
+                [item[0] for item in sorted_items[:common_num] + sorted_items[common_num:common_num+len_labels] + null_results],
+                [item[0] for item in sorted_items[:common_num] + sorted_items[common_num + len_labels: common_num + len_labels*2] + null_results],
+                [item[0] for item in sorted_items[:common_num] + sorted_items[common_num + len_labels*2:common_num + len_labels*3] + null_results],
+                [item[0] for item in sorted_items[:common_num] + sorted_items[common_num + len_labels*3:common_num + len_labels*4] + null_results],
                 ]
         except Exception as e:
             raise Exception(f"query all buckets failed:{str(e)}")

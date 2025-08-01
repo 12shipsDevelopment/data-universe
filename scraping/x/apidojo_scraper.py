@@ -13,6 +13,7 @@ from scraping.apify import ActorRunner, RunConfig
 from scraping.x.model import XContent
 from scraping.x import utils
 import datetime as dt
+from common import constants
 
 
 class ApiDojoTwitterScraper(Scraper):

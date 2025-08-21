@@ -8,7 +8,7 @@ import httpx
 
 from common.data import DataEntity, DataLabel, DataSource
 from common.date_range import DateRange
-from scraping.scraper import ScrapeConfig, Scraper, ValidationResult, HFValidationResult
+from scraping.scraper import ScrapeConfig, Scraper, ValidationResult
 from scraping.youtube.model import YouTubeContent
 from scraping.apify import ActorRunner, RunConfig, ActorRunError
 
@@ -126,11 +126,20 @@ class YouTubeChannelTranscriptScraper(Scraper):
                             bt.logging.warning(f"No transcript available for video {video_id}")
                             continue
 
+                        # Get view count from Apify actor response
+                        view_count = transcript_data.get('view_count', 0)
+
+                        # Filter low engagement videos (100+ views required)
+                        if view_count < 100:
+                            bt.logging.info(
+                                f"Video {video_id} has only {view_count} views, skipping (minimum 100 required)")
+                            continue
+
                         # Get upload date from API
                         upload_date = await self._get_upload_date_from_api(video_id)
                         if not upload_date:
-                            bt.logging.warning(f"No upload date for video {video_id}, using current time")
-                            upload_date = dt.datetime.now(dt.timezone.utc)
+                            bt.logging.warning(f"No upload date for video {video_id}, skipping to prevent timestamp validation bypass")
+                            continue
 
                         # Check date range
                         if not self._is_within_date_range(upload_date, scrape_config.date_range):
@@ -207,7 +216,8 @@ class YouTubeChannelTranscriptScraper(Scraper):
                 response = await client.get(url, params=params)
                 response.raise_for_status()
                 data = response.json()
-
+                print('DATA from YT google response')
+                print(data)
                 if not data.get("items"):
                     bt.logging.warning(f"No channel data found for ID: {channel_id}")
                     return []
@@ -296,7 +306,8 @@ class YouTubeChannelTranscriptScraper(Scraper):
 
             run_input = {
                 "video_url": video_url,
-                "best_effort": True
+                "best_effort": True,
+                "get_yt_original_metadata": True
             }
 
             run_config = RunConfig(
@@ -336,7 +347,8 @@ class YouTubeChannelTranscriptScraper(Scraper):
             run_input = {
                 "video_url": video_url,
                 "language": language,
-                "best_effort": True
+                "best_effort": True,
+                "get_yt_original_metadata": True
             }
 
             run_config = RunConfig(
@@ -358,7 +370,7 @@ class YouTubeChannelTranscriptScraper(Scraper):
             return None
 
     async def _get_upload_date_from_api(self, video_id: str) -> Optional[dt.datetime]:
-        """Get upload date from YouTube API (minimal usage)."""
+        """Get upload date from YouTube API."""
         if not self.youtube_api_key:
             return None
 
@@ -377,8 +389,10 @@ class YouTubeChannelTranscriptScraper(Scraper):
                 data = response.json()
 
                 if data.get("items") and len(data["items"]) > 0:
-                    published_at = data["items"][0]["snippet"]["publishedAt"]
-                    return dt.datetime.fromisoformat(published_at.replace('Z', '+00:00'))
+                    item = data["items"][0]
+                    published_at = item["snippet"]["publishedAt"]
+                    upload_date = dt.datetime.fromisoformat(published_at.replace('Z', '+00:00'))
+                    return upload_date
 
         except Exception as e:
             bt.logging.warning(f"Failed to get upload date for {video_id}: {str(e)}")
@@ -401,7 +415,7 @@ class YouTubeChannelTranscriptScraper(Scraper):
             upload_date=upload_date,
             transcript=transcript_data.get('transcript', []),
             url=f"https://www.youtube.com/watch?v={video_id}",
-            duration_seconds=self._parse_duration(transcript_data.get('duration', '0')),
+            duration_seconds=int(transcript_data.get('duration', '0')),
             language=language
         )
 
@@ -421,12 +435,54 @@ class YouTubeChannelTranscriptScraper(Scraper):
                 bt.logging.info(
                     f"Validating video {content_to_validate.video_id} in original language: {original_language}")
 
+                # Validate upload date against YouTube API to prevent timeBucketId bypass
+                stored_upload_date = content_to_validate.upload_date
+                real_upload_date = await self._get_upload_date_from_api(content_to_validate.video_id)
+                
+                if not real_upload_date:
+                    results.append(ValidationResult(
+                        is_valid=False,
+                        reason="Cannot verify upload date from YouTube API - potential timestamp manipulation",
+                        content_size_bytes_validated=entity.content_size_bytes
+                    ))
+                    continue
+                
+                # STRICT: Both YouTube API and scraper use UTC - exact match required  
+                if stored_upload_date != real_upload_date:
+                    results.append(ValidationResult(
+                        is_valid=False,
+                        reason=f"Upload date mismatch: API shows {real_upload_date}, stored shows {stored_upload_date}. This indicates timeBucketId validation bypass attempt.",
+                        content_size_bytes_validated=entity.content_size_bytes
+                    ))
+                    continue
+                
+                # Verify time bucket consistency
+                stored_bucket_id = int(stored_upload_date.timestamp() // 3600)
+                real_bucket_id = int(real_upload_date.timestamp() // 3600)
+                if stored_bucket_id != real_bucket_id:
+                    results.append(ValidationResult(
+                        is_valid=False,
+                        reason=f"Time bucket mismatch: stored video claims bucket {stored_bucket_id}, but real upload is in bucket {real_bucket_id}. This indicates timeBucketId validation bypass attempt.",
+                        content_size_bytes_validated=entity.content_size_bytes
+                    ))
+                    continue
+
                 # Get current data for validation using the SAME language the miner used
                 transcript_data = await self._get_transcript_from_actor(content_to_validate.video_id, original_language)
                 if not transcript_data:
                     results.append(ValidationResult(
                         is_valid=False,
                         reason="Video transcript not available in original language",
+                        content_size_bytes_validated=entity.content_size_bytes
+                    ))
+                    continue
+
+                # Validate view count during validation
+                view_count = transcript_data.get('view_count', 0)
+                if view_count < 100:
+                    results.append(ValidationResult(
+                        is_valid=False,
+                        reason=f"Video has low engagement ({view_count} views, minimum 100 required)",
                         content_size_bytes_validated=entity.content_size_bytes
                     ))
                     continue
@@ -444,52 +500,6 @@ class YouTubeChannelTranscriptScraper(Scraper):
                 ))
 
         return results
-
-    async def validate_hf(self, entities) -> HFValidationResult:
-        """Validate HuggingFace dataset entries."""
-        if not entities:
-            return HFValidationResult(
-                is_valid=True,
-                validation_percentage=100,
-                reason="No entities to validate"
-            )
-
-        validation_results = []
-
-        for entity in entities:
-            try:
-                video_id = self._extract_video_id_from_url(entity.get('url', ''))
-                language = entity.get('language', self.DEFAULT_LANGUAGE)
-
-                if not video_id:
-                    validation_results.append(False)
-                    continue
-
-                transcript_data = await self._get_transcript_from_actor(video_id, language)
-                if not transcript_data:
-                    validation_results.append(False)
-                    continue
-
-                if entity.get('text'):
-                    actual_text = self._extract_transcript_text(transcript_data.get('transcript', []))
-                    stored_text = entity.get('text', '')
-
-                    similarity = self._calculate_text_similarity(actual_text, stored_text)
-                    validation_results.append(similarity >= 0.7)
-                else:
-                    validation_results.append(False)
-
-            except Exception:
-                validation_results.append(False)
-
-        valid_count = sum(1 for result in validation_results if result)
-        validation_percentage = (valid_count / len(validation_results)) * 100 if validation_results else 0
-
-        return HFValidationResult(
-            is_valid=validation_percentage >= 60,
-            validation_percentage=validation_percentage,
-            reason=f"Validation Percentage = {validation_percentage}"
-        )
 
     def _validate_content_match(self, actual_data: Dict[str, Any], stored_content: YouTubeContent,
                                 entity: DataEntity) -> ValidationResult:
@@ -527,23 +537,6 @@ class YouTubeChannelTranscriptScraper(Scraper):
             reason="Content validated successfully",
             content_size_bytes_validated=entity.content_size_bytes
         )
-
-    def _parse_duration(self, duration_str: str) -> int:
-        """Parse duration string to seconds."""
-        try:
-            if isinstance(duration_str, int):
-                return duration_str
-
-            if ':' in str(duration_str):
-                parts = str(duration_str).split(':')
-                if len(parts) == 2:  # MM:SS
-                    return int(parts[0]) * 60 + int(parts[1])
-                elif len(parts) == 3:  # HH:MM:SS
-                    return int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
-
-            return int(float(duration_str))
-        except Exception:
-            return 0
 
     def _extract_video_id_from_url(self, url: str) -> Optional[str]:
         """Extract video ID from YouTube URL."""

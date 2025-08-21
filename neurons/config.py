@@ -24,7 +24,6 @@ import argparse
 from pathlib import Path
 import bittensor as bt
 from loguru import logger
-import macrocosmos as mc
 from common import utils
 
 from dotenv import load_dotenv
@@ -134,23 +133,11 @@ def add_args(neuron_type: NeuronType, parser):
         )
 
         parser.add_argument(
-            "--mclogger.off",
-            action="store_true",
-            help="Set this flag to disable logging to the Macrocosmos logger.",
-            default=False,
-        )
-
-        parser.add_argument(
             "--neuron.disable_set_weights",
             action="store_true",
             help="Set this flag to disable setting the weights to network."
         )
-        parser.add_argument(
-            "--hf_results_path",
-            action="store_true",
-            help="Set this flag to select the location where you are want to store your hf_results data",
-            default=os.path.join(Path(os.path.dirname(__file__)).parent, "hf_validation.parquet"),
-        )
+
         parser.add_argument(
             "--s3_results_path",
             action="store_true",
@@ -230,8 +217,8 @@ def add_args(neuron_type: NeuronType, parser):
         parser.add_argument(
             "--use_uploader",
             action="store_true",
-            help="Set this flag to true to upload your data into HF dataset",
-            default=False
+            help="Set this flag to true to upload your data into S3 storage",
+            default=True
         )
 
         parser.add_argument(

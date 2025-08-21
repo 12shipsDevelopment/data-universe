@@ -9,7 +9,7 @@ from typing import List, Tuple, Optional, Dict, Any
 from common import constants
 from common.data import DataEntity, DataLabel, DataSource
 from common.date_range import DateRange
-from scraping.scraper import ScrapeConfig, Scraper, ValidationResult, HFValidationResult
+from scraping.scraper import ScrapeConfig, Scraper, ValidationResult
 from scraping.apify import ActorRunner, RunConfig
 from scraping.x.model import XContent
 from scraping.x.apidojo_scraper import ApiDojoTwitterScraper
@@ -31,21 +31,20 @@ class EnhancedApiDojoTwitterScraper(ApiDojoTwitterScraper):
         # Initialize the parent class
         super().__init__(runner=runner or ActorRunner())
 
-    def _best_effort_parse_dataset(self, dataset: List[dict]) -> Tuple[List[XContent], List[bool]]:
+    def _best_effort_parse_dataset(self, dataset: List[dict]) -> Tuple[List[XContent], List[bool], List[dict], List[int]]:
         """
-        Enhanced version that parses the full dataset into both standard XContent (for backward compatibility)
-        and EnhancedXContent objects.
+        Enhanced version that parses the dataset WITHOUT spam/engagement filtering.
 
         Returns:
-            Tuple[List[XContent], List[bool]]: (standard_parsed_content, is_retweets)
+            Tuple[List[XContent], List[bool], List[dict], List[int]]: (parsed_content, is_retweets, author_datas, view_counts)
         """
-        # Call the parent class method to get standard parsed content
-        standard_contents, is_retweets = super()._best_effort_parse_dataset(dataset)
+        # Call the parent class method WITHOUT engagement checks
+        standard_contents, is_retweets, author_datas, view_counts = super()._best_effort_parse_dataset(dataset, check_engagement=False)
 
         # Also parse into enhanced content and store it in a class attribute
         self.enhanced_contents = self._parse_enhanced_content(dataset)
 
-        return standard_contents, is_retweets
+        return standard_contents, is_retweets, author_datas, view_counts 
     
     def _best_effort_parse_tweets(self, dataset: list[Tweet]) -> Tuple[List[XContent], List[bool], int]:
         """
@@ -316,12 +315,19 @@ class EnhancedApiDojoTwitterScraper(ApiDojoTwitterScraper):
         Returns:
             List[EnhancedXContent]: List of parsed EnhancedXContent objects.
         """
+        # Check for empty or zero result datasets
         if dataset == [{"zero_result": True}] or not dataset:
+            bt.logging.info("Dataset is empty or contains zero_result flag")
             return []
 
         results: List[EnhancedXContent] = []
         for data in dataset:
             try:
+                # Skip empty or invalid data entries
+                if not data:
+                    bt.logging.debug("Skipping empty entry")
+                    continue
+                    
                 # Debug the structure of the data
                 if 'media' in data:
                     if isinstance(data['media'], list) and data['media']:
@@ -380,7 +386,7 @@ class EnhancedApiDojoTwitterScraper(ApiDojoTwitterScraper):
                             # Sort by first index
                             sorted_items = sorted(combined, key=lambda x: x['indices'][0])
                             sorted_tags = ["#" + item['text'] if item['type'] == 'hashtag' else "$" + item['text']
-                                           for item in sorted_items]
+                                        for item in sorted_items]
                         except (KeyError, IndexError, TypeError):
                             # If sorting fails, just combine the lists
                             sorted_tags = hashtags + cashtags
@@ -405,7 +411,7 @@ class EnhancedApiDojoTwitterScraper(ApiDojoTwitterScraper):
                             media_types.append('photo')
 
                 # Create timestamp from createdAt
-                timestamp = None
+                timestamp = dt.datetime.now(dt.timezone.utc)
                 if 'createdAt' in data:
                     try:
                         timestamp = dt.datetime.strptime(
@@ -416,7 +422,12 @@ class EnhancedApiDojoTwitterScraper(ApiDojoTwitterScraper):
                         try:
                             timestamp = dt.datetime.fromisoformat(data["createdAt"])
                         except ValueError:
-                            timestamp = dt.datetime.now(dt.timezone.utc)
+                            bt.logging.debug(f"Failed to parse timestamp: {data['createdAt']}. Fallback: {timestamp}")
+
+                # Validate that we have essential data before creating the object
+                if not username and not tweet_id:
+                    bt.logging.debug("Skipping data entry with no essential fields (username, tweet_id)")
+                    continue
 
                 # Create the enhanced content object
                 enhanced_content = EnhancedXContent(
@@ -495,7 +506,23 @@ class EnhancedApiDojoTwitterScraper(ApiDojoTwitterScraper):
                     bt.logging.debug(f"Used fallback parsing for tweet: {url}")
                 except Exception as fallback_error:
                     bt.logging.error(f"Fallback parsing also failed: {str(fallback_error)}")
+                    continue
+        
+        bt.logging.info(f"Successfully parsed {len(results)} enhanced content objects")
         return results
+
+    def _validate_tweet_content(
+            self, actual_tweet: XContent, entity: DataEntity, is_retweet: bool, author_data: dict = None, view_count: int = None
+    ) -> ValidationResult:
+        """Enhanced validation that skips spam and engagement filtering."""
+        # Delegate directly to utils without spam/engagement checks
+        return utils.validate_tweet_content(
+            actual_tweet=actual_tweet,
+            entity=entity,
+            is_retweet=is_retweet,
+            author_data=author_data,
+            view_count=view_count
+        )
 
     async def scrape(self, scrape_config: ScrapeConfig) -> List[DataEntity]:
         """
@@ -529,9 +556,10 @@ class EnhancedApiDojoTwitterScraper(ApiDojoTwitterScraper):
             if username_labels:
                 query_parts.append(f"({' OR '.join(username_labels)})")
 
-            # Add keywords with OR between them if there are any
+            # Add keywords with AND between them if there are any (with exact matching using quotes)
             if keyword_labels:
-                query_parts.append(f"({' OR '.join(keyword_labels)})")
+                quoted_keywords = [f'"{keyword}"' for keyword in keyword_labels]
+                query_parts.append(f"({' AND '.join(quoted_keywords)})")
         else:
             # HACK: The search query doesn't work if only a time range is provided.
             # If no label is specified, just search for "e", the most common letter in the English alphabet.
@@ -568,7 +596,11 @@ class EnhancedApiDojoTwitterScraper(ApiDojoTwitterScraper):
             return []
 
         # Parse the results using both standard and enhanced methods
+<<<<<<< HEAD
         x_contents, is_retweets,skip = self._best_effort_parse_tweets(tweets)
+=======
+        x_contents, is_retweets, _, _  = self._best_effort_parse_dataset(dataset)
+>>>>>>> macrocosm/main
 
         bt.logging.success(
             f"Completed scrape for {query}. Scraped {len(x_contents)} items."
@@ -623,7 +655,7 @@ class EnhancedApiDojoTwitterScraper(ApiDojoTwitterScraper):
         # Convert the enhanced content to DataEntity objects
         data_entities = []
         for content in self.get_enhanced_content():
-            data_entities.append(EnhancedXContent.to_data_entity(content=content))
+            data_entities.append(EnhancedXContent.to_enhanced_data_entity(content=content))
 
         return data_entities
 

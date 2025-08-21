@@ -1,11 +1,12 @@
 import datetime as dt
-import json
 from typing import Dict, List, Optional, Any
 from pydantic import BaseModel, Field
-
+import json
 from common import constants
 from common.data import DataEntity, DataLabel, DataSource
+from common.constants import X_ON_DEMAND_CONTENT_EXPIRATION_DATE
 from scraping import utils
+from scraping.x.model import XContent
 
 
 class EnhancedXContent(BaseModel):
@@ -28,14 +29,14 @@ class EnhancedXContent(BaseModel):
         description="A list of hashtags associated with the tweet, in order they appear in the tweet.",
     )
 
-    # Enhanced fields
+    # Enhanced fields - "user"
     user_id: Optional[str] = None
     user_display_name: Optional[str] = None
     user_verified: Optional[bool] = None
     user_followers_count: Optional[int] = None
     user_following_count: Optional[int] = None
 
-    # Tweet metadata
+    # Tweet metadata - "tweet"
     tweet_id: Optional[str] = None
     like_count: Optional[int] = None
     retweet_count: Optional[int] = None
@@ -45,7 +46,7 @@ class EnhancedXContent(BaseModel):
     is_reply: Optional[bool] = None
     is_quote: Optional[bool] = None
 
-    # Media content
+    # Media content - "media"
     media_urls: List[str] = Field(default_factory=list)
     media_types: List[str] = Field(default_factory=list)
 
@@ -53,12 +54,6 @@ class EnhancedXContent(BaseModel):
     conversation_id: Optional[str] = None
     in_reply_to_user_id: Optional[str] = None
 
-
-    @classmethod
-    def from_data_entity(cls, data_entity: DataEntity) -> "EnhancedXContent":
-        """Converts a DataEntity to an EnhancedXContent."""
-        content_str = data_entity.content.decode("utf-8")
-        return EnhancedXContent.parse_raw(content_str)
 
     @classmethod
     def from_apify_response(cls, data: Dict[str, Any]) -> "EnhancedXContent":
@@ -160,7 +155,7 @@ class EnhancedXContent(BaseModel):
             'datetime': self.timestamp.isoformat() if self.timestamp else None,
             'source': 'X',
             'label': self.tweet_hashtags[0] if self.tweet_hashtags else None,
-            'content': self.text,
+            'text': self.text,
             'user': {
                 'username': self.username,
                 'display_name': self.user_display_name,
@@ -200,24 +195,33 @@ class EnhancedXContent(BaseModel):
 
 
     @classmethod
-    def to_data_entity(cls, content: "EnhancedXContent") -> DataEntity:
-        """Converts the EnhancedXContent to a DataEntity."""
-        from scraping.x.model import XContent
+    def to_data_entity(cls, content: "EnhancedXContent", enhanced: bool = False) -> DataEntity:
+        """Converts the EnhancedXContent to a DataEntity.
         
+        Args:
+            content: The EnhancedXContent instance to convert
+            enhanced: If True, uses the enhanced API response format.
+                            If False, uses the basic XContent format for validation compatibility.
+        """
         entity_timestamp = content.timestamp
         obfuscated_timestamp = utils.obfuscate_datetime_to_minute(entity_timestamp)
         
-        # Create basic XContent with core fields
-        basic_content = XContent(
-            username=content.username,
-            text=content.text,
-            url=content.url,
-            timestamp=obfuscated_timestamp,
-            tweet_hashtags=content.tweet_hashtags,
-            media=content.media_urls if content.media_urls else None
-        )
-        
-        content_bytes = basic_content.json(exclude_none=True).encode("utf-8")
+        if enhanced:
+            # Use the enhanced API response format
+            api_response = content.to_api_response()
+            api_response['datetime'] = obfuscated_timestamp.isoformat() if obfuscated_timestamp else None
+            content_bytes = json.dumps(api_response, ensure_ascii=False).encode("utf-8")
+        else:
+            # Use basic XContent format for validation compatibility
+            basic_content = XContent(
+                username=content.username,
+                text=content.text,
+                url=content.url,
+                timestamp=obfuscated_timestamp,
+                tweet_hashtags=content.tweet_hashtags,
+                media=content.media_urls if content.media_urls else None
+            )
+            content_bytes = basic_content.json(exclude_none=True).encode("utf-8")
 
         return DataEntity(
             uri=content.url,
@@ -234,4 +238,79 @@ class EnhancedXContent(BaseModel):
             ),
             content=content_bytes,
             content_size_bytes=len(content_bytes),
+        )
+
+    @classmethod
+    def to_enhanced_data_entity(cls, content: "EnhancedXContent") -> DataEntity:
+        """Converts the EnhancedXContent to a DataEntity with enhanced format.
+        
+        This is a convenience method that calls to_data_entity with enhanced=True.
+        """
+        return cls.to_data_entity(content, enhanced=True)
+    
+
+    @classmethod
+    def from_data_entity(cls, data_entity: DataEntity) -> "EnhancedXContent":
+        """Converts a DataEntity to an EnhancedXContent."""
+        
+        # Decode the content - this should be the new X API format
+        content_str = data_entity.content.decode("utf-8")  
+        content_dict = json.loads(content_str)
+        
+        # Extract data from the new API structure
+        user_info = content_dict.get("user", {})
+        tweet_info = content_dict.get("tweet", {})
+        media_info = content_dict.get("media", [])
+        
+        # Map to EnhancedXContent fields
+        username = user_info.get("username")
+        if username and not username.startswith("@"):
+            username = f"@{username}"
+            
+        text = content_dict.get("text")
+        now = dt.datetime.now(dt.timezone.utc)
+        if now <= X_ON_DEMAND_CONTENT_EXPIRATION_DATE:
+            if not text:
+                # Using 'content' as fallback for compatibility until Aug 25 2025
+                text = content_dict.get("content")
+        if not text:
+            text = "" 
+        url = content_dict.get("uri")
+        
+        # Handle timestamp - could be in content_dict or data_entity
+        timestamp = data_entity.datetime
+        
+        # Extract hashtags from tweet info
+        hashtags = tweet_info.get("hashtags", [])
+        
+        # Extract media URLs and types
+        media_urls = []
+        media_types = []
+        for media_item in media_info:
+            media_urls.append(media_item.get("url"))
+            media_types.append(media_item.get("type", "unknown"))
+        
+        return cls(
+            username=username,
+            text=text,
+            url=url,
+            timestamp=timestamp,
+            tweet_hashtags=hashtags,
+            user_id=user_info.get("id"),
+            user_display_name=user_info.get("display_name"),
+            user_verified=user_info.get("verified"),
+            user_followers_count=user_info.get("followers_count"),
+            user_following_count=user_info.get("following_count"),
+            tweet_id=tweet_info.get("id"),
+            like_count=tweet_info.get("like_count"),
+            retweet_count=tweet_info.get("retweet_count"),
+            reply_count=tweet_info.get("reply_count"),
+            quote_count=tweet_info.get("quote_count"),
+            is_retweet=tweet_info.get("is_retweet"),
+            is_reply=tweet_info.get("is_reply"),
+            is_quote=tweet_info.get("is_quote"),
+            media_urls=media_urls,
+            media_types=media_types,
+            conversation_id=tweet_info.get("conversation_id"),
+            in_reply_to_user_id=tweet_info.get("in_reply_to", {}).get("user_id") if tweet_info.get("in_reply_to") else None
         )

@@ -10,8 +10,9 @@ from common import constants
 from common.protocol import OnDemandRequest, GetDataEntityBucket
 from common.organic_protocol import OrganicRequest
 from common import utils  # Import your utils
+from vali_utils import metrics
 from vali_utils.api.models import QueryRequest, QueryResponse, HealthResponse, LabelSize, AgeSize, LabelBytes, \
-    DesirabilityRequest, HfReposResponse
+    DesirabilityRequest
 from vali_utils.api.auth.auth import require_master_key, verify_api_key
 from vali_utils.api.utils import endpoint_error_handler, query_validator
 from scraping.scraper import ScrapeConfig
@@ -84,7 +85,7 @@ async def query_data(
     last_error = None
     status = None
     
-    for uid in available_validators:
+    for attempt_i, uid in enumerate(available_validators):
         queried_validator = validator_registry.validators[uid]
         
         bt.logging.info(f"Querying validator {queried_validator.uid} at {queried_validator.axon}")
@@ -100,6 +101,7 @@ async def query_data(
             
             wallet = validator.wallet
             
+            t_start = time.perf_counter()
             # Query the validator
             response = await query_validator(
                 wallet=wallet,
@@ -113,9 +115,14 @@ async def query_data(
                 end_date=request.end_date,
                 limit=request.limit or 100
             )
-            
-            # Check if we got a valid response
+            duration = time.perf_counter() - t_start
+
             status = response.get('status') if isinstance(response, dict) else getattr(response, 'status', 'unknown')
+
+            metric_status_to_log = status if response and status else 'error'      
+            metrics.ON_DEMAND_VALIDATOR_QUERY_DURATION.labels(hotkey=queried_validator.hotkey, status=metric_status_to_log).observe(duration)
+
+            # Check if we got a valid response
             if response and status:
                 # Update validator status based on response
                 validator_registry.update_validators(uid, status)
@@ -137,6 +144,8 @@ async def query_data(
             bt.logging.error(f"Error querying validator {uid}: {str(e)}")
             last_error = str(e)
     
+    metrics.ON_DEMAND_VALIDATOR_QUERY_ATTEMPTS.observe(attempt_i + 1)
+
     # If we didn't get a successful response from any validator
     if not response or not status or status not in ["success", "warning"]:
         bt.logging.error(f"All validators failed to process request. Status: {status}")
@@ -299,36 +308,6 @@ async def query_bucket(
     except Exception as e:
         bt.logging.error(f"Error querying bucket: {str(e)}")
         raise HTTPException(500, str(e))
-
-
-@router.get("/list_repo_names", response_model=HfReposResponse)
-@endpoint_error_handler
-async def list_hf_repo_names(
-        validator=Depends(get_validator),
-        api_key: str = Depends(verify_api_key)):
-    """
-    Returns a list of repository names from the hf_validation.parquet file,
-    excluding "no_dataset_provided".
-    """
-    try:
-        parquet_path = validator.config.hf_results_path
-        
-        df = pd.read_parquet(parquet_path)
-        
-        # Extract unique repo names, excluding "no_dataset_provided"
-        repo_names = [name for name in df['repo_name'].unique() if name != "no_dataset_provided"]
-        repo_names.sort()
-        
-        return {
-            "count": len(repo_names),
-            "repo_names": repo_names
-        }
-    except FileNotFoundError:
-        bt.logging.error("hf_validation.parquet file not found")
-        raise HTTPException(404, "Dataset file not found")
-    except Exception as e:
-        bt.logging.error(f"Error retrieving repository names: {str(e)}")
-        raise HTTPException(500, f"Error retrieving repository names: {str(e)}")
 
 
 @router.get("/health", response_model=HealthResponse)

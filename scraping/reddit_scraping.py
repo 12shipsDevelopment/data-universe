@@ -154,7 +154,10 @@ class RedditScraper:
                         title=post.get("title", None),
                         parentId=post.get("parent_id", None),
                         media=media,
-                        is_nsfw=is_nsfw
+                        is_nsfw=is_nsfw,
+                        score=post.get("score", None),
+                        upvote_ratio=post.get("upvote_ratio", None),
+                        num_comments=post.get("num_comments", None)
                     )
                     de = RedditContent.to_data_entity(content)
                     current_chunk_size += de.content_size_bytes

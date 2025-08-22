@@ -15,7 +15,6 @@ from common.data import (
     DataLabel,
     DataSource,
     TimeBucket,
-    HuggingFaceMetadata,
 )
 from storage.miner.miner_storage import MinerStorage
 from typing import Dict, List
@@ -198,24 +197,6 @@ class MySQLMinerStorage(MinerStorage):
                     # Commit the insert.
                     connection.commit()
 
-    def store_hf_dataset_info(self, hf_metadatas: List[HuggingFaceMetadata]):
-        with contextlib.closing(self._create_connection()) as connection:
-            with contextlib.closing(connection.cursor(buffered=True)) as cursor:
-                values = [
-                    (
-                        hf_metadata.repo_name,
-                        hf_metadata.source,
-                        hf_metadata.updated_at,
-                        getattr(hf_metadata, 'encoding_key', None)
-                    )
-                    for hf_metadata in hf_metadatas
-                ]
-
-                cursor.executemany(
-                    f"REPLACE INTO {MySQLMinerStorage.HF_METADATA_TABLE_BASE+self.hf_suffix} (uri, source, updatedAt, encodingKey) VALUES (%s,%s,%s,%s)", values)
-
-                connection.commit()
-
     def get_earliest_data_datetime(self, source):
         query = "SELECT MIN(datetime) as earliest_date FROM DataEntity WHERE source = %s"
         with contextlib.closing(self._create_connection()) as connection:
@@ -259,32 +240,6 @@ class MySQLMinerStorage(MinerStorage):
         except Exception as e:
             bt.logging.error(f"An error occurred: {e}")
             return False
-
-    def get_hf_metadata(self, unique_id: str) -> List[HuggingFaceMetadata]:
-        sql_query = f"""
-            SELECT uri, source, updatedAt, 
-                   CASE WHEN encodingKey IS NULL THEN '' ELSE encodingKey END as encodingKey
-            FROM {MySQLMinerStorage.HF_METADATA_TABLE_BASE+self.hf_suffix}
-            WHERE uri LIKE %s
-            ORDER BY updatedAt DESC
-            LIMIT 2;
-        """
-
-        with contextlib.closing(self._create_connection()) as connection:
-            with contextlib.closing(connection.cursor(dictionary=True)) as cursor:
-                cursor.execute(sql_query, (f"%_{unique_id}",))
-                hf_metadatas = []
-
-                for row in cursor:
-                    hf_metadata = HuggingFaceMetadata(
-                        repo_name=row['uri'],
-                        source=row['source'],
-                        updated_at=row['updatedAt'],
-                        encoding_key=row['encodingKey'] if row['encodingKey'] != '' else None
-                    )
-                    hf_metadatas.append(hf_metadata)
-
-        return hf_metadatas
 
     def list_data_entities_in_data_entity_bucket(
         self, data_entity_bucket_id: DataEntityBucketId

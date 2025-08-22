@@ -596,11 +596,7 @@ class EnhancedApiDojoTwitterScraper(ApiDojoTwitterScraper):
             return []
 
         # Parse the results using both standard and enhanced methods
-<<<<<<< HEAD
         x_contents, is_retweets,skip = self._best_effort_parse_tweets(tweets)
-=======
-        x_contents, is_retweets, _, _  = self._best_effort_parse_dataset(dataset)
->>>>>>> macrocosm/main
 
         bt.logging.success(
             f"Completed scrape for {query}. Scraped {len(x_contents)} items."

@@ -259,7 +259,7 @@ class ApiDojoTwitterScraper(Scraper):
                         continue
                     
                     if utils.is_low_engagement_tweet2(tweet):
-                        bt.logging.debug(f"Filtered low engagement tweet: {data.get('url', 'unknown')}")
+                        bt.logging.debug(f"Filtered low engagement tweet: {tweet.url}")
                         continue
 
                 text = tweet.rawContent #data['text']

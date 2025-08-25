@@ -9,6 +9,7 @@ from common.constants import NO_TWITTER_URLS_DATE
 from scraping import utils
 from scraping.scraper import ValidationResult
 from scraping.x.model import XContent
+from twscrape.models import Tweet, User
 
 # Validation fields
 REQUIRED_FIELDS = [
@@ -315,29 +316,17 @@ def validate_data_entity_fields(actual_tweet: XContent, entity: DataEntity) -> V
         content_size_bytes_validated=entity.content_size_bytes,
     )
 
-def is_spam_account2(author_data: dict) -> bool:
-    if not isinstance(author_data, dict):
-        return True
+def is_spam_account2(author_data: User) -> bool:
 
-    followers = author_data.get('followersCount', 0)
+    followers = author_data.followersCount
     if followers < 50:
         return True
     
     # Check account age (30+ days)
-    created_at_str = author_data.get('created')
-    if created_at_str:
-        try:
-            created_at = dt.datetime.strptime(created_at_str, "%a %b %d %H:%M:%S %z %Y")
-            account_age = dt.datetime.now(dt.timezone.utc) - created_at
-            if account_age.days < 30:
-                return True
-        except (ValueError, TypeError):
-            # If we can't parse the date, be conservative and reject
-            return True
-    else:
-        # No creation date = suspicious
+    created_at = author_data.created
+    account_age = dt.datetime.now(dt.timezone.utc) - created_at
+    if account_age.days < 30:
         return True
-    
     return False
 
 def is_spam_account(author_data: dict) -> bool:
@@ -375,14 +364,10 @@ def is_spam_account(author_data: dict) -> bool:
     
     return False
 
-def is_low_engagement_tweet2(tweet_data: dict) -> bool:
-    
-    if not isinstance(tweet_data, dict):
-        return True
-    
+def is_low_engagement_tweet2(tweet_data: Tweet) -> bool:
     # Check minimum views (50+)
-    view_count = tweet_data.get('viewCount', 0)
-    if view_count < 50:
+    view_count = tweet_data.viewCount
+    if view_count is not None and view_count < 50:
         return True
     
     return False

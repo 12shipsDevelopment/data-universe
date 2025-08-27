@@ -6,7 +6,7 @@ from scraping.x.apidojo_scraper import ApiDojoTwitterScraper
 from scraping.x.model import XContent
 from scraping.reddit.model import RedditContent, RedditDataType
 from scraping.reddit.reddit_custom_scraper import extract_media_urls
-from common.data import DataEntity,TimeBucket, DataSource, DataEntityBucketId
+from common.data import DataEntity,TimeBucket, DataSource, DataEntityBucketId, DataLabel
 from storage.miner.miner_storage import MinerStorage
 from common.date_range import DateRange
 import bittensor as bt
@@ -201,7 +201,7 @@ class TwitterScraper:
         check_bucket_id = DataEntityBucketId(
             time_bucket=TimeBucket(id = bucket_id),
             source=DataSource.X,
-            label=tag,
+            label=DataLabel(value = tag),
         )
 
         stored_data_entities = self.storage.list_data_entities_in_data_entity_bucket(check_bucket_id)
@@ -382,7 +382,7 @@ class TwitterScraper:
 
                 
                 if current_chunk_size != 0:
-                    if not await output_queue.put(data_entities, current_chunk_size):
+                    if not await output_queue.put(data_entities, current_chunk_size, False):
                         bt.logging.success(f"end of scrape {tag} in {bucket_id} with {output_queue._current_size} data")
                         return
 

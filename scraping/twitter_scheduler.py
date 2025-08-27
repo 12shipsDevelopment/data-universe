@@ -103,12 +103,9 @@ class TwitterScheduler:
     def init_tasks(self, labels, days_back=30):
         now = datetime.now()
         start = now - timedelta(days=days_back)
-        left_boundary = now - timedelta(days=10)
         left = True
         while start <= now:
             timeBucketId = TimeBucket.from_datetime(start).id - 1
-            if left and start >= left_boundary:
-                left = False
             for label in labels:
                 if label.startswith('#'):
                     self.add_task({
@@ -132,4 +129,4 @@ class TwitterScheduler:
                     "label": label,
                     "cursor": None,
                     "source": DataSource.X
-                }, left=False)
+                }, left=True)

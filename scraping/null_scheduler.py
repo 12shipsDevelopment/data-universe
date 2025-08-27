@@ -82,7 +82,7 @@ class NullScheduler:
                 "contentSizeBytes": 0,
                 "tag": "a",
                 "cursor": None
-            }, left=False)
+            }, left=True)
             start += timedelta(hours=1)
         print("NullScheduler: initialize 30days tasks completed")
 
@@ -94,4 +94,4 @@ class NullScheduler:
             "contentSizeBytes": 0,
             "tag": "a",
             "cursor": None
-        }, left=False)
+        }, left=True)

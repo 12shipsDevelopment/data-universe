@@ -310,9 +310,10 @@ class MySQLMinerStorage(MinerStorage):
                         running_size += row[6]
                 end = dt.datetime.now()
                 
-                bt.logging.debug( 
-                    f"Adding data entity {data_entities[0]} to bucket {data_entity_bucket_id}"
-                )
+                if len(data_entities) > 0 :
+                    bt.logging.debug( 
+                        f"Adding data entity {data_entities[0]} to bucket {data_entity_bucket_id}"
+                    )
                 bt.logging.info(
                     f"Listing data entities and combining each timestamp for bucket {data_entity_bucket_id} took {(end - start).total_seconds():.2f} seconds."
                 )

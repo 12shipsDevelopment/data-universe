@@ -3,7 +3,7 @@ from collections import deque
 import requests
 import datetime as dt
 from scraping.reddit.model import RedditContent, RedditDataType
-from scraping.reddit.reddit_custom_scraper import extract_media_urls
+from scraping.reddit.reddit_custom_scraper import extract_media_urls2
 from storage.miner.miner_storage import MinerStorage
 import bittensor as bt
 from scraping.reddit_scheduler import RedditScheduler
@@ -137,7 +137,7 @@ class RedditScraper:
                             tzinfo=dt.timezone.utc
                         )
                     if type == "posts":
-                        media = extract_media_urls(post)
+                        media = extract_media_urls2(post)
                         if media is not None and is_nsfw:
                             continue
                     else:

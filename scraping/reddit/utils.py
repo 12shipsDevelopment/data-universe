@@ -424,6 +424,82 @@ def validate_nsfw_content(submitted_content: RedditContent, actual_content: Redd
         content_size_bytes_validated=entity.content_size_bytes,
     )
 
+def extract_media_urls2(submission) -> List[str]:
+    """
+    Extract media URLs from a Reddit submission following X/Twitter pattern.
+
+    Args:
+        submission: Reddit submission object from asyncpraw
+
+    Returns:
+        List[str]: List of media URLs found in the submission
+    """
+    media_urls = []
+
+    try:
+        # 1. Direct URL (for image/video posts) - prioritize original URLs
+        if submission.get("url", None):
+            url = submission["url"]
+            # Check if it's a direct media URL or Reddit media domain
+            if (any(url.endswith(ext) for ext in ['.jpg', '.jpeg', '.png', '.gif', '.mp4', '.webm']) or
+                    any(domain in url for domain in ['i.redd.it', 'v.redd.it'])):
+                # Clean URL parameters to get original
+                clean_url = url.split('?')[0]
+                media_urls.append(clean_url)
+
+        # 2. Preview images (only if no direct URL found, and clean parameters)
+        if submission.get('preview', None):
+            preview_data = submission["preview"]
+            if isinstance(preview_data, dict) and 'images' in preview_data:
+                print("1")
+                for image in preview_data['images']:
+                    print("2")
+                    if 'source' in image and 'url' in image['source']:
+                        # Clean URL parameters to prevent gaming with extra bytes
+                        clean_url = image['source']['url'].split('?')[0]
+                        # Convert preview URLs to original i.redd.it URLs when possible
+                        if 'preview.redd.it' in clean_url:
+                            original_url = clean_url.replace('preview.redd.it', 'i.redd.it')
+                            media_urls.append(original_url)
+                        else:
+                            media_urls.append(clean_url)
+
+        # 3. Gallery media - clean URLs and get originals
+        if submission.get('media_metadata', None):
+            media_metadata = submission["media_metadata"]
+            if isinstance(media_metadata, dict):
+                for media_id, media_data in media_metadata.items():
+                    if isinstance(media_data, dict) and 's' in media_data:
+                        source = media_data['s']
+                        if 'u' in source:
+                            # Decode HTML entities and clean parameters
+                            url = source['u'].replace('&amp;', '&').split('?')[0]
+                            # Convert preview URLs to original i.redd.it URLs
+                            if 'preview.redd.it' in url:
+                                original_url = url.replace('preview.redd.it', 'i.redd.it')
+                                media_urls.append(original_url)
+                            else:
+                                media_urls.append(url)
+
+    except Exception as e:
+        print(f"e:{e}")
+
+    # Clean all URLs by removing parameters and duplicates
+    clean_media_urls = []
+    seen_urls = set()
+
+    for url in media_urls:
+        # Remove all parameters after ? to eliminate auto=webp&s=... stuff
+        clean_url = url.split('?')[0]
+
+        # Skip if we've already seen this clean URL
+        if clean_url in seen_urls:
+            continue
+
+        seen_urls.add(clean_url)
+        clean_media_urls.append(clean_url)
+
+    return clean_media_urls
 
 def extract_media_urls(submission) -> List[str]:
     """

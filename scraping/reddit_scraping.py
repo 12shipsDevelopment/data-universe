@@ -155,8 +155,10 @@ class RedditScraper:
                         parentId=post.get("parent_id", None),
                         media=media,
                         is_nsfw=is_nsfw,
-                        score=post.get("score", None),
-                        upvote_ratio=post.get("upvote_ratio", None),
+                        # score=post.get("score", None),
+                        # upvote_ratio=post.get("upvote_ratio", None),
+                        score=None,
+                        upvote_ratio=None,
                         num_comments=post.get("num_comments", None)
                     )
                     de = RedditContent.to_data_entity(content)

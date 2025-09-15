@@ -16,7 +16,8 @@ from scraping.reddit.utils import (
     get_custom_sort_input,
     normalize_label,
     normalize_permalink,
-    extract_media_urls
+    extract_media_urls,
+    extract_media_urls2
 )
 
 from common.date_range import DateRange

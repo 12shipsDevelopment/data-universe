@@ -84,7 +84,7 @@ class RedditContent(BaseModel):
         """Converts the RedditContent to a DataEntity."""
         entity_created_at = content.created_at
         content.created_at = utils.obfuscate_datetime_to_minute(entity_created_at)
-        content_bytes = content.json(by_alias=True).encode("utf-8")
+        content_bytes = content.json(by_alias=True, exclude={'score'}).encode("utf-8")
 
         return DataEntity(
             uri=content.url,

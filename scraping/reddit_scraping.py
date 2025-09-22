@@ -111,7 +111,9 @@ class RedditScraper:
                 data_entities = []
                 delete_urls = []
                 current_chunk_size = 0
+                limit = 0
                 for post in posts:
+                    limit += 1
                     if post.get("_meta", None):
                         if post["_meta"].get("removal_type", None):
                             removal_type = post["_meta"]["removal_type"]
@@ -162,6 +164,8 @@ class RedditScraper:
                         num_comments=post.get("num_comments", None)
                     )
                     de = RedditContent.to_data_entity(content)
+                    if limit <= 5:
+                        bt.logging.success(f"scraped {de.url}...")
                     current_chunk_size += de.content_size_bytes
                     data_entities.append(de)
 

@@ -165,7 +165,7 @@ class RedditScraper:
                     )
                     de = RedditContent.to_data_entity(content)
                     if limit <= 5:
-                        bt.logging.success(f"scraped {de.url}...")
+                        bt.logging.success(f"scraped url {content.url}...")
                     current_chunk_size += de.content_size_bytes
                     data_entities.append(de)
 

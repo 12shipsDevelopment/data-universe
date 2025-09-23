@@ -113,7 +113,7 @@ class RedditScheduler:
                     "comment_before": timestamp,
                     "comment_after": timestamp,
                     "comment_latest": 0,
-                    "is_nsfw": None
+                    "is_nsfw": False
                 })
 
     def check_labels(self):
